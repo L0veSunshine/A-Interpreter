@@ -1,129 +1,58 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
-type AST interface {
-	ToString() string
+type Node interface {
+	TokenLiteral() string
+	String() string
 }
 
-type BinOp struct {
-	Left, Right AST
-	op          Token
+type Expression interface {
+	Node
 }
 
-type UnaryOp struct {
-	Expr AST
-	op   Token
+type InfixExpr struct {
+	Left, Right Node
+	Op          Token
 }
 
-type Num struct {
-	token Token
-	value float64
+func (ie InfixExpr) TokenLiteral() string {
+	return ie.Op.Literal
 }
 
-type Vars struct {
-	token Token
-	value interface{}
+func (ie InfixExpr) String() string {
+	return fmt.Sprintf("[%s %s %s]",
+		ie.Left.String(),
+		ie.Op.Literal,
+		ie.Right.String())
 }
 
-type AssignOp struct {
-	BinOp
+type PrefixExpr struct {
+	Op    Token
+	Right Expression
 }
 
-type program struct {
-	name  string
-	block AST
+func (pe PrefixExpr) TokenLiteral() string {
+	return pe.Op.Literal
 }
 
-type Block struct {
-	declarations      []AST
-	compoundStatement AST
+func (pe PrefixExpr) String() string {
+	return fmt.Sprintf("[%s %s]",
+		pe.Op.Literal,
+		pe.Right.String())
 }
 
-func (b Block) ToString() string {
-	var s string
-	s = "Declarations "
-	for _, d := range b.declarations {
-		//for _, inner := range d {
-		//	s += inner.ToString() + " "
-		//}
-		s += d.ToString()
-	}
-	s += " compoundStatement " + b.compoundStatement.ToString()
-	return s
+type NumberNode struct {
+	Token Token
+	Value float64
 }
 
-type VaeDecl struct {
-	varNode, typeNode AST
+func (n NumberNode) TokenLiteral() string {
+	return n.Token.Literal
 }
 
-type Type struct {
-	token Token
-	value interface{}
-}
-
-type Compound struct {
-	children []AST
-}
-
-type NoOp struct {
-}
-
-func (vd VaeDecl) ToString() string {
-	return vd.varNode.ToString() + vd.typeNode.ToString()
-}
-
-func (t Type) ToString() string {
-	return "Type " + t.token.Type + " " + fmt.Sprint(t.value)
-}
-
-func (o BinOp) ToString() string {
-	return fmt.Sprintf("BinOp: [%s %s %s]",
-		o.Left.ToString(),
-		o.op.Value,
-		o.Right.ToString())
-}
-
-func (n Num) ToString() string {
-	s := fmt.Sprint(n.value)
-	return "Num:" + s
-}
-
-func (o UnaryOp) ToString() string {
-	return fmt.Sprintf("UnaryOp: [%s %s]",
-		o.op.Value, o.Expr.ToString())
-}
-
-func (co Compound) ToString() string {
-	var s string
-	for _, c := range co.children {
-		s += "{" + c.ToString() + "}"
-	}
-	return s
-}
-
-func (v Vars) ToString() string {
-	value := fmt.Sprint(v.value)
-	return "(Var " + value + ") "
-}
-
-func (o NoOp) ToString() string {
-	return ""
-}
-
-func (p program) ToString() string {
-	return "Program " + p.name + " " + p.block.ToString()
-}
-
-func NNum(token Token) Num {
-	n := Num{
-		token: token,
-	}
-	value, ok := token.Value.(int)
-	if ok {
-		n.value = float64(value)
-	} else {
-		n.value = token.Value.(float64)
-	}
-	return n
+func (n NumberNode) String() string {
+	return n.Token.Literal
 }

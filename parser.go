@@ -1,264 +1,250 @@
 package main
 
 import (
-	"fmt"
+	"strconv"
 )
 
 type Parser struct {
-	lex      *Lexer
-	curToken *Token
-	err      error
+	lex *Lexer
+	curToken,
+	peekToken *Token
+	*Errors
+	prefixFns map[string]prefixParseFn
+	infixFns  map[string]infixParseFn
+}
+
+func (p *Parser) regPrefixFn(token string, fn prefixParseFn) {
+	p.prefixFns[token] = fn
+}
+
+func (p *Parser) regInfixFn(token string, fn infixParseFn) {
+	p.infixFns[token] = fn
 }
 
 func NewParser(lex *Lexer) *Parser {
-	return &Parser{
-		lex:      lex,
-		curToken: lex.NextToken(),
+	p := &Parser{
+		lex:       lex,
+		Errors:    NewErr(),
+		prefixFns: map[string]prefixParseFn{},
+		infixFns:  map[string]infixParseFn{},
 	}
+	//确保词法分析器位置正确
+	p.lex.loc = &Locate{Column: 1, Line: 1}
+
+	p.regPrefixFn(LParen, p.expr)
+	p.regPrefixFn(Plus, p.parsePrefixExpr)
+	p.regPrefixFn(Minus, p.parsePrefixExpr)
+	p.regPrefixFn(Number, p.parseNumber)
+
+	p.regInfixFn(Minus, p.parseInfixExpr)
+	p.regInfixFn(Plus, p.parseInfixExpr)
+	p.regInfixFn(Mul, p.parseInfixExpr)
+	p.regInfixFn(Div, p.parseInfixExpr)
+	p.regInfixFn(Floor, p.parseInfixExpr)
+	p.regInfixFn(Pow, p.parseInfixExpr)
+
+	p.next()
+	p.next()
+	return p
 }
 
-func (p *Parser) error() {
-	panic("interpreter error")
+func (p *Parser) next() {
+	p.curToken = p.peekToken
+	p.peekToken = p.lex.NextToken()
 }
 
 func (p *Parser) eat(Type string) {
 	if p.curToken.Type == Type {
-		p.curToken = p.lex.NextToken()
+		p.next()
 		return
 	}
-	fmt.Println("panic at " + fmt.Sprint(p.curToken.Value))
-	panic("panic at " + fmt.Sprint(p.curToken.Value))
+	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
+		p.curToken.Loc.Column, p.curToken.Loc.Line)
 }
-func (p *Parser) program() AST {
-	p.eat(Program)
-	node := p.variable()
-	programName := node.(Vars).ToString()
-	p.eat(Semi)
-	blockNode := p.block()
-	programNode := program{
-		name:  programName,
-		block: blockNode,
+func (p *Parser) eatPeek(Type string) {
+	if p.peekToken.Type == Type {
+		p.next()
+		return
 	}
-	p.eat(Dot)
-	return programNode
+	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
+		p.curToken.Loc.Column, p.curToken.Loc.Line)
 }
 
-func (p *Parser) block() AST {
-	declarationNodes := p.declarations()
-	compoundStatementNode := p.compoundStatement()
-	return Block{
-		declarations:      declarationNodes,
-		compoundStatement: compoundStatementNode,
+func (p *Parser) parseExpr(precedence int) Expression {
+	prefix := p.prefixFns[p.curToken.Type]
+	if prefix == nil {
+		p.NewErrorF("no prefix parse function for %s found",
+			p.curToken.Type)
+		return nil
 	}
-}
-
-func (p *Parser) declarations() []AST {
-	var declarations []AST
-	if p.curToken.Type == Var {
-		p.eat(Var)
-		for p.curToken.Type == ID {
-			varDec1 := p.variableDeclaration()
-			declarations = append(declarations, varDec1...)
-			p.eat(Semi)
+	left := prefix()
+	for precedence < p.peekPrecedence() {
+		infix := p.infixFns[p.peekToken.Type]
+		if infix == nil {
+			return left
 		}
+		p.next()
+		left = infix(left)
 	}
-	return declarations
+	return left
 }
 
-func (p *Parser) variableDeclaration() []AST {
-	var nodes, varDeclarations []AST
-	nodes = append(nodes, Vars{
-		token: *p.curToken,
-		value: p.curToken.Value,
-	})
-	p.eat(ID)
-	for p.curToken.Type == Comma {
-		p.eat(Comma)
-		nodes = append(nodes, Vars{token: *p.curToken, value: p.curToken.Value})
-		p.eat(ID)
+func (p *Parser) peekPrecedence() int {
+	if p, ok := precedences[p.peekToken.Type]; ok {
+		return p
 	}
-	p.eat(Colon)
-	typeNode := p.typeSpec()
-	for _, n := range nodes {
-		varDeclarations = append(varDeclarations, VaeDecl{varNode: n, typeNode: typeNode})
-	}
-	return varDeclarations
+	return LOWEST
 }
 
-func (p *Parser) typeSpec() AST {
-	token := p.curToken
-	if p.curToken.Type == Integer {
-		p.eat(Integer)
-	} else {
-		p.eat(Real)
+func (p *Parser) curPrecedence() int {
+	if p, ok := precedences[p.curToken.Type]; ok {
+		return p
 	}
-	node := Type{
-		token: *token,
-		value: token.Value,
-	}
-	return node
+	return LOWEST
 }
 
-func (p *Parser) compoundStatement() AST {
-	p.eat(Begin)
-	nodes := p.statementList()
-	p.eat(End)
-	return Compound{children: nodes}
-}
-
-func (p *Parser) statementList() (res []AST) {
-	var node AST
-	node = p.statement()
-	res = append(res, node)
-	for p.curToken.Type == Semi {
-		p.eat(Semi)
-		res = append(res, p.statement())
-	}
-	if p.curToken.Type == ID {
-		p.error()
-	}
-	return res
-}
-
-func (p *Parser) statement() AST {
-	var node AST
-	switch p.curToken.Type {
-	case Begin:
-		node = p.compoundStatement()
-	case ID:
-		node = p.assignmentStatement()
-	default:
-		node = p.empty()
-	}
-	return node
-}
-
-func (p *Parser) assignmentStatement() AST {
-	left := p.variable()
-	token := p.curToken
-	p.eat(Assign)
-	right := p.expr()
-	return AssignOp{
-		BinOp{
-			Left:  left,
-			Right: right,
-			op: Token{
-				Type:  token.Type,
-				Value: token.Value,
-			},
-		},
+func (p *Parser) parsePrefixExpr() Expression {
+	token := *p.curToken
+	p.next()
+	right := p.parseExpr(PREFIX)
+	return PrefixExpr{
+		Op:    token,
+		Right: right,
 	}
 }
 
-func (p *Parser) variable() AST {
-	node := Vars{
-		token: *p.curToken,
-		value: p.curToken.Value,
+func (p *Parser) parseInfixExpr(left Expression) Expression {
+	op := *p.curToken
+	precedence := p.curPrecedence()
+	p.next()
+	right := p.parseExpr(precedence)
+	return InfixExpr{
+		Left:  left,
+		Right: right,
+		Op:    op,
 	}
-	p.eat(ID)
-	return node
 }
 
-func (p *Parser) empty() AST {
-	return NoOp{}
-}
-
-func (p *Parser) factor() AST {
-	token := p.curToken
-	switch token.Type {
-	case Plus:
-		p.eat(Plus)
-		return UnaryOp{
-			Expr: p.factor(),
-			op:   *token,
-		}
-	case Minus:
-		p.eat(Minus)
-		return UnaryOp{
-			Expr: p.factor(),
-			op:   *token,
-		}
-	case IntegerConst:
-		p.eat(IntegerConst)
-		return NNum(*token)
-	case RealConst:
-		p.eat(RealConst)
-		return NNum(*token)
-	case LParen:
-		p.eat(LParen)
-		val := p.expr()
-		p.eat(RParen)
-		return val
-	default:
-		node := p.variable()
-		return node
+func (p *Parser) parseNumber() Expression {
+	var token = *p.curToken
+	floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
+	if e != nil {
+		p.Push(e)
+		return nil
 	}
-	//fmt.Println("Invalid factor " + token.Value.(string))
-	//panic("Invalid factor")
-}
-
-func (p *Parser) term() AST {
-	var node AST
-	node = p.midFactor()
-	for p.curToken.Type == Mul || p.curToken.Type == FloatDiv ||
-		p.curToken.Type == IntegerDiv {
-		token := *p.curToken
-		if p.curToken.Type == Mul {
-			p.eat(Mul)
-		} else if p.curToken.Type == FloatDiv {
-			p.eat(FloatDiv)
-		} else if p.curToken.Type == IntegerDiv {
-			p.eat(IntegerDiv)
-		}
-		node = BinOp{
-			Left:  node,
-			Right: p.midFactor(),
-			op:    token,
-		}
+	return NumberNode{
+		Token: token,
+		Value: floatVal,
 	}
-	return node
 }
 
-func (p *Parser) midFactor() AST {
-	var node AST
-	node = p.factor()
-	for p.curToken.Type == Pow {
-		token := *p.curToken
-		if p.curToken.Type == Pow {
-			p.eat(Pow)
-		}
-		node = BinOp{
-			Left:  node,
-			Right: p.factor(),
-			op:    token,
-		}
-	}
-	return node
+//func (p *Parser) factor() Node {
+//	token := p.curToken
+//	switch token.Type {
+//	case Plus:
+//		p.eat(Plus)
+//		return PrefixExpr{
+//			Right: p.factor(),
+//			Op:    *token,
+//		}
+//	case Minus:
+//		p.eat(Minus)
+//		return PrefixExpr{
+//			Right: p.factor(),
+//			Op:    *token,
+//		}
+//	case LParen:
+//		p.eat(LParen)
+//		val := p.expr()
+//		p.eat(RParen)
+//		return val
+//	case Number:
+//		floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
+//		var token = *p.curToken
+//		if e != nil {
+//			p.Push(e)
+//			return nil
+//		}
+//		p.eat(Number)
+//		return NumberNode{
+//			Token: token,
+//			Value: floatVal,
+//		}
+//	default:
+//		return nil
+//	}
+//}
+
+//func (p *Parser) term() Node {
+//	var node Node
+//	node = p.midFactor()
+//	for p.curToken.Type == Mul || p.curToken.Type == Div ||
+//		p.curToken.Type == Floor {
+//		token := *p.curToken
+//		if p.curToken.Type == Mul {
+//			p.eat(Mul)
+//		} else if p.curToken.Type == Floor {
+//			p.eat(Floor)
+//		} else if p.curToken.Type == Div {
+//			p.eat(Div)
+//		}
+//		node = InfixExpr{
+//			Left:  node,
+//			Right: p.midFactor(),
+//			Op:    token,
+//		}
+//	}
+//	return node
+//}
+
+//func (p *Parser) midFactor() Node {
+//	var node Node
+//	node = p.factor()
+//	for p.curToken.Type == Pow {
+//		token := *p.curToken
+//		if p.curToken.Type == Pow {
+//			p.eat(Pow)
+//		}
+//		node = InfixExpr{
+//			Left:  node,
+//			Right: p.factor(),
+//			Op:    token,
+//		}
+//	}
+//	return node
+//}
+
+//func (p *Parser) expr() Node {
+//	var node Node
+//	node = p.term()
+//	for p.curToken.Type == Plus || p.curToken.Type == Minus {
+//		tokens := *p.curToken
+//		if p.curToken.Type == Plus {
+//			p.eat(Plus)
+//		} else if p.curToken.Type == Minus {
+//			p.eat(Minus)
+//		}
+//		node = InfixExpr{
+//			Left:  node,
+//			Op:    tokens,
+//			Right: p.term(),
+//		}
+//	}
+//	return node
+//}
+
+func (p *Parser) expr() Expression {
+	p.eat(LParen)
+	exp := p.parseExpr(LOWEST)
+	p.eatPeek(RParen)
+	return exp
 }
 
-func (p *Parser) expr() AST {
-	var node AST
-	node = p.term()
-	for p.curToken.Type == Plus || p.curToken.Type == Minus {
-		token := *p.curToken
-		if p.curToken.Type == Plus {
-			p.eat(Plus)
-		} else if p.curToken.Type == Minus {
-			p.eat(Minus)
-		}
-		node = BinOp{
-			Left:  node,
-			op:    token,
-			Right: p.term(),
-		}
-	}
-	return node
-}
-
-func (p *Parser) Parse() (node AST) {
-	node = p.program()
+func (p *Parser) Parse() (node Expression) {
+	node = p.parseExpr(LOWEST)
+	p.next()
 	if p.curToken.Type != EOF {
-		panic("Is not EOF")
+		p.NewError("parser failed")
 	}
-	return
+	return node
 }

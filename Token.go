@@ -6,58 +6,59 @@ import (
 )
 
 const (
-	Integer      = "Integer"
-	Real         = "Real"
-	IntegerConst = "IntegerConst"
-	RealConst    = "RealConst"
-	Plus         = "Plus"
-	Minus        = "Minus"
-	Pow          = "Pow"
-	Mul          = "Mul"
-	IntegerDiv   = "IntegerDiv"
-	FloatDiv     = "FloatDiv"
-	LParen       = "LParen"
-	RParen       = "RParen"
-	ID           = "ID"
-	Assign       = "Assign"
-	Begin        = "Begin"
-	End          = "End"
-	Semi         = "Semi"
-	Dot          = "Dot"
-	Program      = "Program"
-	Var          = "Var"
-	Colon        = "Colon"
-	Comma        = "Comma"
-	EOF          = "EOF"
+	Number     = "Number"
+	Plus       = "Plus"
+	Minus      = "Minus"
+	Pow        = "Pow"
+	Mul        = "Mul"
+	Div        = "Div"
+	Floor      = "Floor"
+	Equal      = "Equal"
+	LParen     = "LParen"
+	RParen     = "RParen"
+	Var        = "Var"
+	Assign     = "Assign"
+	Dot        = "Dot"
+	Identifier = "Identifier"
+	Semi       = "Semi"
+	Colon      = "Colon"
+	Comma      = "Comma"
+	EOF        = "EOF"
+	Illegal    = "Illegal"
 )
 
-var Reserved = map[string]*Token{
-	"PROGRAM": NToken(Program, Program),
-	"VAR":     NToken(Var, Var),
-	"DIV":     NToken(IntegerDiv, IntegerDiv),
-	"INTEGER": NToken(Integer, Integer),
-	"REAL":    NToken(Real, Real),
-	"BEGIN":   NToken(Begin, Begin),
-	"END":     NToken(End, End),
+var Reserved = map[string]string{
+	"var": Var,
 }
 
-func NToken(Type string, Value interface{}) *Token {
+type Locate struct {
+	Column, Line int
+}
+
+func NToken(Type string, Value interface{}, loc *Locate) *Token {
+	s := fmt.Sprint(Value)
 	return &Token{
-		Type:  Type,
-		Value: Value,
+		Type:    Type,
+		Literal: s,
+		Loc:     *loc,
 	}
 }
 
 type Token struct {
-	Type  string
-	Value interface{}
+	Type    string
+	Literal string
+	Loc     Locate
 }
 
 func (t *Token) Str() string {
-	s := fmt.Sprint(t.Value)
-	return fmt.Sprintf("Token(%s%s%s)", t.Type, " ", strconv.Quote(s))
+	return fmt.Sprintf("Token(%s%s%s) at col%d, line%d.", t.Type, " ", strconv.Quote(t.Literal),
+		t.Loc.Column, t.Loc.Line)
 }
 
 func (t *Token) IsEOF() bool {
 	return t.Type == EOF
+}
+
+func (t *Token) IsIllegal() bool {
+	return t.Type == Illegal
 }
