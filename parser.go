@@ -243,8 +243,10 @@ func (p *Parser) expr() Expression {
 func (p *Parser) Parse() (node Expression) {
 	node = p.parseExpr(LOWEST)
 	p.next()
-	if p.curToken.Type != EOF {
-		p.NewError("parser failed")
+	cur := p.curToken
+	if cur.Type != EOF {
+		p.NewErrorF("Unexpect token %s, at loc%d, line%d.",
+			cur.Quote(), cur.Loc.Column, cur.Loc.Line)
 	}
 	return node
 }

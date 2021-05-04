@@ -6,7 +6,7 @@ import (
 
 type Node interface {
 	TokenLiteral() string
-	String() string
+	Str() string
 }
 
 type Expression interface {
@@ -22,11 +22,11 @@ func (ie InfixExpr) TokenLiteral() string {
 	return ie.Op.Literal
 }
 
-func (ie InfixExpr) String() string {
+func (ie InfixExpr) Str() string {
 	return fmt.Sprintf("[%s %s %s]",
-		ie.Left.String(),
+		ie.Left.Str(),
 		ie.Op.Literal,
-		ie.Right.String())
+		ie.Right.Str())
 }
 
 type PrefixExpr struct {
@@ -38,10 +38,10 @@ func (pe PrefixExpr) TokenLiteral() string {
 	return pe.Op.Literal
 }
 
-func (pe PrefixExpr) String() string {
+func (pe PrefixExpr) Str() string {
 	return fmt.Sprintf("[%s %s]",
 		pe.Op.Literal,
-		pe.Right.String())
+		pe.Right.Str())
 }
 
 type NumberNode struct {
@@ -53,6 +53,6 @@ func (n NumberNode) TokenLiteral() string {
 	return n.Token.Literal
 }
 
-func (n NumberNode) String() string {
+func (n NumberNode) Str() string {
 	return n.Token.Literal
 }

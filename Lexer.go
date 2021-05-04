@@ -2,7 +2,6 @@ package main
 
 import (
 	"Interpreter/utils"
-	"strconv"
 )
 
 type Lexer struct {
@@ -86,17 +85,9 @@ func (l *Lexer) number() *Token {
 			value = append(value, l.cur.Rune())
 			l.advance(1)
 		}
-		floatValue, err := strconv.ParseFloat(string(value), 64)
-		if err != nil {
-			l.Push(err)
-		}
-		return NToken(Number, floatValue, l.loc)
+		return NToken(Number, string(value), l.loc)
 	} else {
-		intValue, err := strconv.Atoi(string(value))
-		if err != nil {
-			l.Push(err)
-		}
-		return NToken(Number, intValue, l.loc)
+		return NToken(Number, string(value), l.loc)
 	}
 }
 
@@ -112,6 +103,17 @@ func (l *Lexer) id() *Token {
 	}
 	t := NToken(Identifier, valueStr, l.loc)
 	return t
+}
+
+func (l *Lexer) string() *Token {
+	l.advance(1)
+	var rs []rune
+	for !l.cur.Equal(`"`) && !l.cur.IsNull() {
+		rs = append(rs, l.cur.Rune())
+		l.advance(1)
+	}
+	l.advance(1)
+	return NToken(String, string(rs), l.loc)
 }
 
 func (l *Lexer) illegal() *Token {
@@ -145,9 +147,6 @@ LOOP:
 		}
 		l.advance(1)
 		return NToken(Assign, "=", loc)
-	case l.cur.Equal(";"):
-		l.advance(1)
-		return NToken(Semi, ";", loc)
 	case l.cur.Equal(":"):
 		l.advance(1)
 		return NToken(Colon, ":", loc)
@@ -175,18 +174,26 @@ LOOP:
 		}
 		l.advance(1)
 		return NToken(Div, "/", loc)
+	case l.cur.Equal(`"`):
+		return l.string()
 	case l.cur.Equal("("):
 		l.advance(1)
 		return NToken(LParen, "(", loc)
 	case l.cur.Equal(")"):
 		l.advance(1)
 		return NToken(RParen, ")", loc)
+	case l.cur.Equal("{"):
+		l.advance(1)
+		return NToken(LBRACE, "{", loc)
+	case l.cur.Equal("}"):
+		l.advance(1)
+		return NToken(RBRACE, "}", loc)
 	case l.cur.Equal("."):
 		l.advance(1)
 		return NToken(Dot, ".", loc)
 	case l.cur.IsNull():
 		l.advance(1)
-		return NToken(EOF, nil, loc)
+		return NToken(EOF, "", loc)
 	}
 	return l.illegal()
 }

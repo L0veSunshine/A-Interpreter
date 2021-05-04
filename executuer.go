@@ -3,13 +3,17 @@ package main
 import (
 	"Interpreter/object"
 	"math"
+	"reflect"
 )
 
 type Interpreter struct {
+	*Errors
 }
 
-func New() *Interpreter {
-	return &Interpreter{}
+func NewExe() *Interpreter {
+	return &Interpreter{
+		Errors: NewErr(),
+	}
 }
 
 func (i *Interpreter) visit(node Node) object.Object {
@@ -24,6 +28,7 @@ func (i *Interpreter) visit(node Node) object.Object {
 		right := i.visit(node.Right)
 		return i.visitInfix(node, left, right)
 	}
+	i.NewErrorF("Unknown AST type %s", reflect.TypeOf(node).Name())
 	return nil
 }
 
@@ -38,6 +43,7 @@ func (i *Interpreter) visitPrefix(node PrefixExpr, right object.Object) object.O
 	case object.NumberObj:
 		return numberPrefix(node, right)
 	}
+	i.NewErrorF("Unknown AST type %s", right.Type())
 	return nil
 }
 
@@ -81,6 +87,6 @@ func numberInfix(node InfixExpr, left, right object.Object) object.Object {
 }
 
 func Exec(ast Node) object.Object {
-	inter := New()
+	inter := NewExe()
 	return inter.visit(ast)
 }
