@@ -2,7 +2,6 @@ package utils
 
 import (
 	"strconv"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -19,7 +18,11 @@ func (c *Char) IsNull() bool {
 }
 
 func (c *Char) IsWhitespace() bool {
-	return unicode.IsSpace(c.id)
+	switch c.id {
+	case '\t', '\v', '\f', '\r', ' ', 0x85, 0xA0: // use \n as LF
+		return true
+	}
+	return false
 }
 
 func (c *Char) IsDigital() bool {

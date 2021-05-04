@@ -1,7 +1,9 @@
 package main
 
 import (
+	"Interpreter/ast"
 	"Interpreter/object"
+	"Interpreter/tokens"
 	"math"
 	"reflect"
 )
@@ -16,14 +18,14 @@ func NewExe() *Interpreter {
 	}
 }
 
-func (i *Interpreter) visit(node Node) object.Object {
+func (i *Interpreter) visit(node ast.Node) object.Object {
 	switch node := node.(type) {
-	case NumberNode:
+	case ast.NumberNode:
 		return i.visitNum(node)
-	case PrefixExpr:
+	case ast.PrefixExpr:
 		right := i.visit(node.Right)
 		return i.visitPrefix(node, right)
-	case InfixExpr:
+	case ast.InfixExpr:
 		left := i.visit(node.Left)
 		right := i.visit(node.Right)
 		return i.visitInfix(node, left, right)
@@ -32,13 +34,13 @@ func (i *Interpreter) visit(node Node) object.Object {
 	return nil
 }
 
-func (i *Interpreter) visitNum(node NumberNode) object.Object {
+func (i *Interpreter) visitNum(node ast.NumberNode) object.Object {
 	return &object.Number{
 		Value: node.Value,
 	}
 }
 
-func (i *Interpreter) visitPrefix(node PrefixExpr, right object.Object) object.Object {
+func (i *Interpreter) visitPrefix(node ast.PrefixExpr, right object.Object) object.Object {
 	switch right.Type() {
 	case object.NumberObj:
 		return numberPrefix(node, right)
@@ -47,7 +49,7 @@ func (i *Interpreter) visitPrefix(node PrefixExpr, right object.Object) object.O
 	return nil
 }
 
-func (i *Interpreter) visitInfix(node InfixExpr, left, right object.Object) object.Object {
+func (i *Interpreter) visitInfix(node ast.InfixExpr, left, right object.Object) object.Object {
 	switch {
 	case left.Type() == object.NumberObj && right.Type() == object.NumberObj:
 		return numberInfix(node, left, right)
@@ -55,38 +57,38 @@ func (i *Interpreter) visitInfix(node InfixExpr, left, right object.Object) obje
 	panic("Type error")
 }
 
-func numberPrefix(node PrefixExpr, right object.Object) object.Object {
+func numberPrefix(node ast.PrefixExpr, right object.Object) object.Object {
 	rightVal := right.(*object.Number)
 	switch node.Op.Type {
-	case Minus:
+	case tokens.Minus:
 		return &object.Number{Value: -rightVal.Value}
-	case Plus:
+	case tokens.Plus:
 		return &object.Number{Value: rightVal.Value}
 	}
 	panic("unknown op")
 }
 
-func numberInfix(node InfixExpr, left, right object.Object) object.Object {
+func numberInfix(node ast.InfixExpr, left, right object.Object) object.Object {
 	leftVal := left.(*object.Number)
 	rightVal := right.(*object.Number)
 	switch node.Op.Type {
-	case Plus:
+	case tokens.Plus:
 		return &object.Number{Value: leftVal.Value + rightVal.Value}
-	case Minus:
+	case tokens.Minus:
 		return &object.Number{Value: leftVal.Value - rightVal.Value}
-	case Mul:
+	case tokens.Mul:
 		return &object.Number{Value: leftVal.Value * rightVal.Value}
-	case Div:
+	case tokens.Div:
 		return &object.Number{Value: leftVal.Value / rightVal.Value}
-	case Floor:
+	case tokens.Floor:
 		return &object.Number{Value: math.Floor(leftVal.Value / rightVal.Value)}
-	case Pow:
+	case tokens.Pow:
 		return &object.Number{Value: math.Pow(leftVal.Value, rightVal.Value)}
 	}
 	panic("unknown op")
 }
 
-func Exec(ast Node) object.Object {
+func Exec(ast ast.Node) object.Object {
 	inter := NewExe()
 	return inter.visit(ast)
 }

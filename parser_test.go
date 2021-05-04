@@ -6,22 +6,22 @@ import (
 )
 
 var s = `10/2-9*8*2`
+var s1 = `var a=1
+var b=a+3
+b=b+2*a
+return 6*a
+`
+var s2 = "d=(2*b)+a+c"
 
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s)
+	lex := NewLexer(s1)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
 		fmt.Println(ast.Str())
 	} else {
-		fmt.Println(p.errs)
+		fmt.Println(p.errs, len(p.errs))
 	}
-	inter := NewExe()
-	res := inter.visit(ast)
-	fmt.Println(res.Inspect())
-	//inter.GetGlobalTable()
-
-	//fmt.Println(ast.ToString())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {

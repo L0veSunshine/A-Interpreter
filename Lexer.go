@@ -1,13 +1,14 @@
 package main
 
 import (
+	"Interpreter/tokens"
 	"Interpreter/utils"
 )
 
 type Lexer struct {
 	rs  []rune
 	pos int
-	loc *Locate
+	loc *tokens.Locate
 	cur *utils.Char
 	*Errors
 }
@@ -16,7 +17,7 @@ func NewLexer(text string) *Lexer {
 	l := &Lexer{
 		rs:     []rune(text),
 		Errors: NewErr(),
-		loc: &Locate{
+		loc: &tokens.Locate{
 			Column: 1,
 			Line:   1,
 		},
@@ -25,14 +26,14 @@ func NewLexer(text string) *Lexer {
 	return l
 }
 
-func (l Lexer) Array() []Token {
-	var tokens []Token
+func (l Lexer) Array() []tokens.Token {
+	var ts []tokens.Token
 	first := l.NextToken()
 	for ; !first.IsEOF(); first = l.NextToken() {
-		tokens = append(tokens, *first)
+		ts = append(ts, *first)
 	}
 
-	return tokens
+	return ts
 }
 
 func (l *Lexer) advance(step int) {
@@ -72,7 +73,7 @@ func (l *Lexer) peek() *utils.Char {
 	}
 }
 
-func (l *Lexer) number() *Token {
+func (l *Lexer) number() *tokens.Token {
 	var value []rune
 	for !l.cur.IsNull() && l.cur.IsDigital() {
 		value = append(value, l.cur.Rune())
@@ -85,27 +86,27 @@ func (l *Lexer) number() *Token {
 			value = append(value, l.cur.Rune())
 			l.advance(1)
 		}
-		return NToken(Number, string(value), l.loc)
+		return tokens.NToken(tokens.Number, string(value), l.loc)
 	} else {
-		return NToken(Number, string(value), l.loc)
+		return tokens.NToken(tokens.Number, string(value), l.loc)
 	}
 }
 
-func (l *Lexer) id() *Token {
+func (l *Lexer) id() *tokens.Token {
 	var value []rune
 	for !l.cur.IsNull() && l.cur.IsAlNum() {
 		value = append(value, l.cur.Rune())
 		l.advance(1)
 	}
 	valueStr := string(value)
-	if cur, ok := Reserved[valueStr]; ok {
-		return NToken(cur, cur, l.loc)
+	if cur, ok := tokens.Reserved[valueStr]; ok {
+		return tokens.NToken(cur, cur, l.loc)
 	}
-	t := NToken(Identifier, valueStr, l.loc)
+	t := tokens.NToken(tokens.Ident, valueStr, l.loc)
 	return t
 }
 
-func (l *Lexer) string() *Token {
+func (l *Lexer) string() *tokens.Token {
 	l.advance(1)
 	var rs []rune
 	for !l.cur.Equal(`"`) && !l.cur.IsNull() {
@@ -113,10 +114,10 @@ func (l *Lexer) string() *Token {
 		l.advance(1)
 	}
 	l.advance(1)
-	return NToken(String, string(rs), l.loc)
+	return tokens.NToken(tokens.String, string(rs), l.loc)
 }
 
-func (l *Lexer) illegal() *Token {
+func (l *Lexer) illegal() *tokens.Token {
 	var value []rune
 	for !l.cur.IsNull() && !l.cur.IsWhitespace() {
 		value = append(value, l.cur.Rune())
@@ -124,10 +125,10 @@ func (l *Lexer) illegal() *Token {
 	}
 	l.NewErrorF("Illegal tokens %s at col%d, line%d.",
 		string(value), l.loc.Column, l.loc.Line)
-	return NToken(Illegal, string(value), l.loc)
+	return tokens.NToken(tokens.Illegal, string(value), l.loc)
 }
 
-func (l *Lexer) NextToken() *Token {
+func (l *Lexer) NextToken() *tokens.Token {
 LOOP:
 	l.skipWhitespace()
 	loc := l.loc
@@ -143,57 +144,79 @@ LOOP:
 	case l.cur.Equal("="):
 		if l.peek().Equal("=") {
 			l.advance(2)
-			return NToken(Equal, "==", loc)
+			return tokens.NToken(tokens.Equal, "==", loc)
 		}
 		l.advance(1)
-		return NToken(Assign, "=", loc)
+		return tokens.NToken(tokens.Assign, "=", loc)
+	case l.cur.Equal("!"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.NotEq, "!=", loc)
+		}
+	case l.cur.Equal("<"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.LTEq, "<=", loc)
+		}
+		l.advance(1)
+		return tokens.NToken(tokens.LT, "<", loc)
+	case l.cur.Equal(">"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.GTEq, ">=", loc)
+		}
+		l.advance(1)
+		return tokens.NToken(tokens.GT, "<", loc)
 	case l.cur.Equal(":"):
 		l.advance(1)
-		return NToken(Colon, ":", loc)
+		return tokens.NToken(tokens.Colon, ":", loc)
 	case l.cur.Equal(","):
 		l.advance(1)
-		return NToken(Comma, ",", loc)
+		return tokens.NToken(tokens.Comma, ",", loc)
 	case l.cur.Equal("+"):
 		l.advance(1)
-		return NToken(Plus, "+", loc)
+		return tokens.NToken(tokens.Plus, "+", loc)
 	case l.cur.Equal("-"):
 		l.advance(1)
-		return NToken(Minus, "-", loc)
+		return tokens.NToken(tokens.Minus, "-", loc)
 	case l.cur.Equal("*"):
 		p := l.peek()
 		if p.Equal("*") {
 			l.advance(2)
-			return NToken(Pow, "**", loc)
+			return tokens.NToken(tokens.Pow, "**", loc)
 		}
 		l.advance(1)
-		return NToken(Mul, "*", loc)
+		return tokens.NToken(tokens.Mul, "*", loc)
 	case l.cur.Equal("/"):
 		if l.peek().Equal("/") {
 			l.advance(2)
-			return NToken(Floor, "//", loc)
+			return tokens.NToken(tokens.Floor, "//", loc)
 		}
 		l.advance(1)
-		return NToken(Div, "/", loc)
+		return tokens.NToken(tokens.Div, "/", loc)
 	case l.cur.Equal(`"`):
 		return l.string()
 	case l.cur.Equal("("):
 		l.advance(1)
-		return NToken(LParen, "(", loc)
+		return tokens.NToken(tokens.LParen, "(", loc)
 	case l.cur.Equal(")"):
 		l.advance(1)
-		return NToken(RParen, ")", loc)
+		return tokens.NToken(tokens.RParen, ")", loc)
 	case l.cur.Equal("{"):
 		l.advance(1)
-		return NToken(LBRACE, "{", loc)
+		return tokens.NToken(tokens.LBRACE, "{", loc)
 	case l.cur.Equal("}"):
 		l.advance(1)
-		return NToken(RBRACE, "}", loc)
+		return tokens.NToken(tokens.RBRACE, "}", loc)
 	case l.cur.Equal("."):
 		l.advance(1)
-		return NToken(Dot, ".", loc)
+		return tokens.NToken(tokens.Dot, ".", loc)
+	case l.cur.Equal("\n"):
+		l.advance(1)
+		return tokens.NToken(tokens.LF, "LF", loc)
 	case l.cur.IsNull():
 		l.advance(1)
-		return NToken(EOF, "", loc)
+		return tokens.NToken(tokens.EOF, "", loc)
 	}
 	return l.illegal()
 }

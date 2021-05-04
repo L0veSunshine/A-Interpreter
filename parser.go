@@ -1,13 +1,15 @@
 package main
 
 import (
+	"Interpreter/ast"
+	"Interpreter/tokens"
 	"strconv"
 )
 
 type Parser struct {
 	lex *Lexer
 	curToken,
-	peekToken *Token
+	peekToken *tokens.Token
 	*Errors
 	prefixFns map[string]prefixParseFn
 	infixFns  map[string]infixParseFn
@@ -29,19 +31,23 @@ func NewParser(lex *Lexer) *Parser {
 		infixFns:  map[string]infixParseFn{},
 	}
 	//确保词法分析器位置正确
-	p.lex.loc = &Locate{Column: 1, Line: 1}
+	p.lex.loc = &tokens.Locate{Column: 1, Line: 1}
 
-	p.regPrefixFn(LParen, p.expr)
-	p.regPrefixFn(Plus, p.parsePrefixExpr)
-	p.regPrefixFn(Minus, p.parsePrefixExpr)
-	p.regPrefixFn(Number, p.parseNumber)
+	p.regPrefixFn(tokens.LParen, p.parseGroupedExpr)
+	p.regPrefixFn(tokens.Plus, p.parsePrefixExpr)
+	p.regPrefixFn(tokens.Minus, p.parsePrefixExpr)
+	p.regPrefixFn(tokens.Number, p.parseNumber)
+	p.regPrefixFn(tokens.Ident, p.parseIdentifier)
+	p.regPrefixFn(tokens.String, p.parseString)
+	p.regPrefixFn(tokens.False, p.parseBoolean)
+	p.regPrefixFn(tokens.True, p.parseBoolean)
 
-	p.regInfixFn(Minus, p.parseInfixExpr)
-	p.regInfixFn(Plus, p.parseInfixExpr)
-	p.regInfixFn(Mul, p.parseInfixExpr)
-	p.regInfixFn(Div, p.parseInfixExpr)
-	p.regInfixFn(Floor, p.parseInfixExpr)
-	p.regInfixFn(Pow, p.parseInfixExpr)
+	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
+	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
+	p.regInfixFn(tokens.Mul, p.parseInfixExpr)
+	p.regInfixFn(tokens.Div, p.parseInfixExpr)
+	p.regInfixFn(tokens.Floor, p.parseInfixExpr)
+	p.regInfixFn(tokens.Pow, p.parseInfixExpr)
 
 	p.next()
 	p.next()
@@ -61,16 +67,96 @@ func (p *Parser) eat(Type string) {
 	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
 		p.curToken.Loc.Column, p.curToken.Loc.Line)
 }
-func (p *Parser) eatPeek(Type string) {
+func (p *Parser) eatPeek(Type string) bool {
 	if p.peekToken.Type == Type {
 		p.next()
-		return
+		return true
 	}
 	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
 		p.curToken.Loc.Column, p.curToken.Loc.Line)
+	return false
 }
 
-func (p *Parser) parseExpr(precedence int) Expression {
+func (p *Parser) parseProgram() ast.Program {
+	var statements []ast.Statement
+	for p.curToken.Type != tokens.EOF {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			statements = append(statements, stmt)
+		}
+		p.next()
+	}
+	return ast.Program{Statements: statements}
+}
+
+func (p *Parser) parseStatement() ast.Statement {
+	switch p.curToken.Type {
+	case tokens.Var:
+		return p.parseVarStatement()
+	case tokens.Ident:
+		return p.parseAssignStatement()
+	case tokens.Return:
+		return p.parseReturnStatement()
+	default:
+		return p.parseExprStatement()
+	}
+}
+
+func (p *Parser) parseVarStatement() ast.Statement {
+	token := *p.curToken // Var tokens
+	p.eatPeek(tokens.Ident)
+	ident := ast.IdentNode{
+		Token: *p.curToken,
+		Value: p.curToken.Literal,
+	}
+	p.eatPeek(tokens.Assign)
+	p.next()
+	value := p.parseExpr(LOWEST)
+	if p.peekToken.Type == tokens.LF {
+		p.next()
+	}
+	return ast.VarStatement{
+		Token:  token,
+		Indent: ident,
+		Value:  value,
+	}
+}
+
+func (p *Parser) parseReturnStatement() ast.Statement {
+	token := *p.curToken // Return tokens
+	p.eat(tokens.Return)
+	returnVal := p.parseExpr(LOWEST)
+	if p.peekToken.Type == tokens.LF {
+		p.next()
+	}
+	return ast.ReturnStatement{
+		Token:     token,
+		ReturnVal: returnVal,
+	}
+}
+
+func (p *Parser) parseAssignStatement() ast.Statement {
+	Ident := *p.curToken // Ident token
+	p.eat(tokens.Ident)
+	p.eat(tokens.Assign)
+	stmt := p.parseExpr(LOWEST)
+	if p.peekToken.Type == tokens.LF {
+		p.next()
+	}
+	return ast.AssignStatement{
+		Ident:     Ident,
+		Statement: stmt,
+	}
+}
+
+func (p *Parser) parseExprStatement() ast.Statement {
+	expr := p.parseExpr(LOWEST)
+	return ast.ExprStatement{
+		Expression: expr,
+	}
+}
+
+func (p *Parser) parseExpr(precedence int) ast.Expression {
 	prefix := p.prefixFns[p.curToken.Type]
 	if prefix == nil {
 		p.NewErrorF("no prefix parse function for %s found",
@@ -103,55 +189,76 @@ func (p *Parser) curPrecedence() int {
 	return LOWEST
 }
 
-func (p *Parser) parsePrefixExpr() Expression {
+func (p *Parser) parsePrefixExpr() ast.Expression {
 	token := *p.curToken
 	p.next()
 	right := p.parseExpr(PREFIX)
-	return PrefixExpr{
+	return ast.PrefixExpr{
 		Op:    token,
 		Right: right,
 	}
 }
 
-func (p *Parser) parseInfixExpr(left Expression) Expression {
+func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 	op := *p.curToken
 	precedence := p.curPrecedence()
 	p.next()
 	right := p.parseExpr(precedence)
-	return InfixExpr{
+	return ast.InfixExpr{
 		Left:  left,
 		Right: right,
 		Op:    op,
 	}
 }
 
-func (p *Parser) parseNumber() Expression {
+func (p *Parser) parseNumber() ast.Expression {
 	var token = *p.curToken
 	floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
 	if e != nil {
 		p.Push(e)
 		return nil
 	}
-	return NumberNode{
+	return ast.NumberNode{
 		Token: token,
 		Value: floatVal,
 	}
 }
 
+func (p *Parser) parseIdentifier() ast.Expression {
+	return ast.IdentNode{
+		Token: *p.curToken,
+		Value: p.curToken.Literal,
+	}
+}
+
+func (p *Parser) parseString() ast.Expression {
+	return ast.StringNode{
+		Token: *p.curToken,
+		Value: p.curToken.Literal,
+	}
+}
+
+func (p *Parser) parseBoolean() ast.Expression {
+	return ast.BooleanNode{
+		Token: *p.curToken,
+		Value: p.curToken.Literal,
+	}
+}
+
 //func (p *Parser) factor() Node {
-//	token := p.curToken
-//	switch token.Type {
+//	tokens := p.curToken
+//	switch tokens.Type {
 //	case Plus:
 //		p.eat(Plus)
 //		return PrefixExpr{
 //			Right: p.factor(),
-//			Op:    *token,
+//			Op:    *tokens,
 //		}
 //	case Minus:
 //		p.eat(Minus)
 //		return PrefixExpr{
 //			Right: p.factor(),
-//			Op:    *token,
+//			Op:    *tokens,
 //		}
 //	case LParen:
 //		p.eat(LParen)
@@ -160,14 +267,14 @@ func (p *Parser) parseNumber() Expression {
 //		return val
 //	case Number:
 //		floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
-//		var token = *p.curToken
+//		var tokens = *p.curToken
 //		if e != nil {
 //			p.Push(e)
 //			return nil
 //		}
 //		p.eat(Number)
 //		return NumberNode{
-//			Token: token,
+//			Token: tokens,
 //			Value: floatVal,
 //		}
 //	default:
@@ -180,7 +287,7 @@ func (p *Parser) parseNumber() Expression {
 //	node = p.midFactor()
 //	for p.curToken.Type == Mul || p.curToken.Type == Div ||
 //		p.curToken.Type == Floor {
-//		token := *p.curToken
+//		tokens := *p.curToken
 //		if p.curToken.Type == Mul {
 //			p.eat(Mul)
 //		} else if p.curToken.Type == Floor {
@@ -191,7 +298,7 @@ func (p *Parser) parseNumber() Expression {
 //		node = InfixExpr{
 //			Left:  node,
 //			Right: p.midFactor(),
-//			Op:    token,
+//			Op:    tokens,
 //		}
 //	}
 //	return node
@@ -201,14 +308,14 @@ func (p *Parser) parseNumber() Expression {
 //	var node Node
 //	node = p.factor()
 //	for p.curToken.Type == Pow {
-//		token := *p.curToken
+//		tokens := *p.curToken
 //		if p.curToken.Type == Pow {
 //			p.eat(Pow)
 //		}
 //		node = InfixExpr{
 //			Left:  node,
 //			Right: p.factor(),
-//			Op:    token,
+//			Op:    tokens,
 //		}
 //	}
 //	return node
@@ -233,20 +340,13 @@ func (p *Parser) parseNumber() Expression {
 //	return node
 //}
 
-func (p *Parser) expr() Expression {
-	p.eat(LParen)
+func (p *Parser) parseGroupedExpr() ast.Expression {
+	p.eat(tokens.LParen)
 	exp := p.parseExpr(LOWEST)
-	p.eatPeek(RParen)
+	p.eatPeek(tokens.RParen)
 	return exp
 }
 
-func (p *Parser) Parse() (node Expression) {
-	node = p.parseExpr(LOWEST)
-	p.next()
-	cur := p.curToken
-	if cur.Type != EOF {
-		p.NewErrorF("Unexpect token %s, at loc%d, line%d.",
-			cur.Quote(), cur.Loc.Column, cur.Loc.Line)
-	}
-	return node
+func (p *Parser) Parse() ast.Statement {
+	return p.parseProgram()
 }

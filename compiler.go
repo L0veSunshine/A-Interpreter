@@ -1,8 +1,10 @@
 package main
 
 import (
+	"Interpreter/ast"
 	"Interpreter/code"
 	"Interpreter/object"
+	"Interpreter/tokens"
 )
 
 type Compiler struct {
@@ -22,33 +24,33 @@ func NewCompiler() *Compiler {
 	}
 }
 
-func (c *Compiler) Compile(node Node) {
+func (c *Compiler) Compile(node ast.Node) {
 	switch node := node.(type) {
-	case NumberNode:
+	case ast.NumberNode:
 		numObj := object.Number{Value: node.Value}
 		operand := c.addConstant(numObj)
 		c.emit(code.OpConstant, operand)
-	case PrefixExpr:
+	case ast.PrefixExpr:
 		c.Compile(node.Right)
 		switch node.Op.Type {
-		case Plus:
+		case tokens.Plus:
 			c.emit(code.OpPlus)
-		case Minus:
+		case tokens.Minus:
 			c.emit(code.OpMinus)
 		default:
 			c.NewErrorF("unknown operator %s", node.Op.Str())
 		}
-	case InfixExpr:
+	case ast.InfixExpr:
 		c.Compile(node.Left)
 		c.Compile(node.Right)
 		switch node.Op.Type {
-		case Plus:
+		case tokens.Plus:
 			c.emit(code.OpAdd)
-		case Minus:
+		case tokens.Minus:
 			c.emit(code.OpSub)
-		case Mul:
+		case tokens.Mul:
 			c.emit(code.OpMul)
-		case Div:
+		case tokens.Div:
 			c.emit(code.OpDiv)
 		default:
 			c.NewErrorF("unknown operator %s", node.Op.Str())

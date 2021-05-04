@@ -1,5 +1,10 @@
 package main
 
+import (
+	"Interpreter/ast"
+	"Interpreter/tokens"
+)
+
 const (
 	_ int = iota
 	LOWEST
@@ -11,16 +16,16 @@ const (
 )
 
 type (
-	prefixParseFn func() Expression
-	infixParseFn  func(Expression) Expression
+	prefixParseFn func() ast.Expression
+	infixParseFn  func(ast.Expression) ast.Expression
 )
 
 var precedences = map[string]int{
-	Plus:   SUM,
-	Minus:  SUM,
-	Mul:    PRODUCT,
-	Div:    PRODUCT,
-	Floor:  PRODUCT,
-	Pow:    POW,
-	LParen: CALL,
+	tokens.Plus:   SUM,
+	tokens.Minus:  SUM,
+	tokens.Mul:    PRODUCT,
+	tokens.Div:    PRODUCT,
+	tokens.Floor:  PRODUCT,
+	tokens.Pow:    POW,
+	tokens.LParen: CALL,
 }

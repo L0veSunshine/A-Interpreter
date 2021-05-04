@@ -1,4 +1,4 @@
-package main
+package tokens
 
 import (
 	"fmt"
@@ -6,21 +6,27 @@ import (
 )
 
 const (
-	Number     = "Number"
-	Identifier = "Identifier"
+	Number = "Number"
+	Ident  = "Ident"
 
-	Plus  = "Plus"
-	Minus = "Minus"
-	Pow   = "Pow"
-	Mul   = "Mul"
-	Div   = "Div"
-	Floor = "Floor"
+	Plus  = "Plus"  // +
+	Minus = "Minus" // -
+	Pow   = "Pow"   // **
+	Mul   = "Mul"   // *
+	Div   = "Div"   // /
+	Floor = "Floor" // //
 
-	Equal  = "Equal"
-	LParen = "LParen"
-	RParen = "RParen"
-	LBRACE = "LBRACE"
-	RBRACE = "RBRACE"
+	Equal = "Equal" // ==
+	NotEq = "NotEq" // !=
+	LT    = "LT"    // <
+	LTEq  = "LTEq"  // <=
+	GT    = "GT"    // >
+	GTEq  = "GTEq"  // >=
+
+	LParen = "LParen" // (
+	RParen = "RParen" // )
+	LBRACE = "LBRACE" // {
+	RBRACE = "RBRACE" // }
 	Var    = "Var"
 	For    = "For"
 	True   = "True"
@@ -36,6 +42,7 @@ const (
 	Dot   = "Dot"   //.
 	Colon = "Colon" //:
 	Comma = "Comma" //,
+	LF    = "LF"
 
 	EOF     = "EOF"
 	Illegal = "Illegal"
