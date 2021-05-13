@@ -3,6 +3,7 @@ package ast
 import (
 	"Interpreter/tokens"
 	"fmt"
+	"strings"
 )
 
 type InfixExpr struct {
@@ -91,4 +92,28 @@ func (s StringNode) TokenLiteral() string {
 
 func (s StringNode) Str() string {
 	return s.Value
+}
+
+type IfExpression struct {
+	Token       tokens.Token //"if" token
+	Condition   Expression
+	Consequence *BlockStatement
+	Alternative *BlockStatement
+}
+
+func (i IfExpression) expressionNode() {}
+func (i IfExpression) TokenLiteral() string {
+	return i.Token.Literal
+}
+
+func (i IfExpression) Str() string {
+	var sb strings.Builder
+	sb.WriteString("if (")
+	sb.WriteString(i.Condition.Str() + ") ")
+	sb.WriteString(i.Consequence.Str())
+	if i.Alternative != nil {
+		sb.WriteString("else (")
+		sb.WriteString(i.Alternative.Str() + ")")
+	}
+	return sb.String()
 }

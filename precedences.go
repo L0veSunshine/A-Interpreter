@@ -8,10 +8,12 @@ import (
 const (
 	_ int = iota
 	LOWEST
-	SUM     // +,-
-	PRODUCT // *,/,//
-	POW
-	PREFIX // -x,!x
+	Eq        // == !=
+	GreatLess // < > <= >=
+	SUM       // +,-
+	PRODUCT   // *,/,//
+	POW       //**
+	PREFIX    // -x,!x
 	CALL
 )
 
@@ -28,4 +30,9 @@ var precedences = map[string]int{
 	tokens.Floor:  PRODUCT,
 	tokens.Pow:    POW,
 	tokens.LParen: CALL,
+	tokens.Equal:  Eq,
+	tokens.LT:     GreatLess,
+	tokens.GT:     GreatLess,
+	tokens.LTEq:   GreatLess,
+	tokens.GTEq:   GreatLess,
 }

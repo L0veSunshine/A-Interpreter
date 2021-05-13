@@ -82,6 +82,10 @@ func (t *Token) Str() string {
 		t.Loc.Column, t.Loc.Line)
 }
 
+func (t *Token) IsLF() bool {
+	return t.Type == LF
+}
+
 func (t *Token) IsEOF() bool {
 	return t.Type == EOF
 }

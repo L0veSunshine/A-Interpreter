@@ -41,6 +41,7 @@ func NewParser(lex *Lexer) *Parser {
 	p.regPrefixFn(tokens.String, p.parseString)
 	p.regPrefixFn(tokens.False, p.parseBoolean)
 	p.regPrefixFn(tokens.True, p.parseBoolean)
+	p.regPrefixFn(tokens.If, p.parseIfExpression)
 
 	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
@@ -48,6 +49,12 @@ func NewParser(lex *Lexer) *Parser {
 	p.regInfixFn(tokens.Div, p.parseInfixExpr)
 	p.regInfixFn(tokens.Floor, p.parseInfixExpr)
 	p.regInfixFn(tokens.Pow, p.parseInfixExpr)
+	p.regInfixFn(tokens.LT, p.parseInfixExpr)
+	p.regInfixFn(tokens.LTEq, p.parseInfixExpr)
+	p.regInfixFn(tokens.GT, p.parseInfixExpr)
+	p.regInfixFn(tokens.GTEq, p.parseInfixExpr)
+	p.regInfixFn(tokens.Equal, p.parseInfixExpr)
+	p.regInfixFn(tokens.NotEq, p.parseInfixExpr)
 
 	p.next()
 	p.next()
@@ -67,6 +74,14 @@ func (p *Parser) eat(Type string) {
 	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
 		p.curToken.Loc.Column, p.curToken.Loc.Line)
 }
+
+func (p *Parser) find(Type string) bool {
+	for p.curToken.Type != Type && !p.curToken.IsEOF() && p.curToken.IsLF() {
+		p.next()
+	}
+	return p.curToken.Type == Type
+}
+
 func (p *Parser) eatPeek(Type string) bool {
 	if p.peekToken.Type == Type {
 		p.next()
@@ -79,7 +94,7 @@ func (p *Parser) eatPeek(Type string) bool {
 
 func (p *Parser) parseProgram() ast.Program {
 	var statements []ast.Statement
-	for p.curToken.Type != tokens.EOF {
+	for p.curToken.IsEOF() {
 		stmt := p.parseStatement()
 		if stmt != nil {
 			statements = append(statements, stmt)
@@ -98,7 +113,11 @@ func (p *Parser) parseStatement() ast.Statement {
 	case tokens.Return:
 		return p.parseReturnStatement()
 	default:
-		return p.parseExprStatement()
+		res := p.parseExprStatement()
+		if p.peekToken.IsLF() {
+			p.next()
+		}
+		return res
 	}
 }
 
@@ -112,7 +131,7 @@ func (p *Parser) parseVarStatement() ast.Statement {
 	p.eatPeek(tokens.Assign)
 	p.next()
 	value := p.parseExpr(LOWEST)
-	if p.peekToken.Type == tokens.LF {
+	if p.peekToken.IsLF() {
 		p.next()
 	}
 	return ast.VarStatement{
@@ -126,7 +145,7 @@ func (p *Parser) parseReturnStatement() ast.Statement {
 	token := *p.curToken // Return tokens
 	p.eat(tokens.Return)
 	returnVal := p.parseExpr(LOWEST)
-	if p.peekToken.Type == tokens.LF {
+	if p.peekToken.IsLF() {
 		p.next()
 	}
 	return ast.ReturnStatement{
@@ -140,7 +159,7 @@ func (p *Parser) parseAssignStatement() ast.Statement {
 	p.eat(tokens.Ident)
 	p.eat(tokens.Assign)
 	stmt := p.parseExpr(LOWEST)
-	if p.peekToken.Type == tokens.LF {
+	if p.peekToken.IsLF() {
 		p.next()
 	}
 	return ast.AssignStatement{
@@ -159,8 +178,8 @@ func (p *Parser) parseExprStatement() ast.Statement {
 func (p *Parser) parseExpr(precedence int) ast.Expression {
 	prefix := p.prefixFns[p.curToken.Type]
 	if prefix == nil {
-		p.NewErrorF("no prefix parse function for %s found",
-			p.curToken.Type)
+		p.NewErrorF("no prefix parse function for %s",
+			p.curToken.Str())
 		return nil
 	}
 	left := prefix()
@@ -242,6 +261,59 @@ func (p *Parser) parseBoolean() ast.Expression {
 	return ast.BooleanNode{
 		Token: *p.curToken,
 		Value: p.curToken.Literal,
+	}
+}
+
+func (p *Parser) parseBlockStatement() ast.BlockStatement {
+	token := *p.curToken
+	p.eat(tokens.LBRACE)
+	var s []ast.Statement
+	for p.curToken.Type != tokens.RBRACE && !p.curToken.IsEOF() {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			s = append(s, stmt)
+		}
+		p.next() //skip }
+	}
+	p.eat(tokens.RBRACE)
+	return ast.BlockStatement{
+		Token:      token,
+		Statements: s,
+	}
+}
+
+func (p *Parser) parseIfExpression() ast.Expression {
+	token := *p.curToken //if
+	p.eat(tokens.If)
+	p.eat(tokens.LParen)
+	cond := p.parseExpr(LOWEST)
+	p.next()
+	p.eat(tokens.RParen)
+	if !p.find(tokens.LBRACE) {
+		p.NewError(`condition need warped by "{}".`)
+	}
+	conseq := p.parseBlockStatement()
+	if p.curToken.Type == tokens.Else {
+		p.eat(tokens.Else)
+		alter := p.parseBlockStatement()
+		if p.curToken.IsLF() {
+			p.next()
+		}
+		return ast.IfExpression{
+			Token:       token,
+			Condition:   cond,
+			Consequence: &conseq,
+			Alternative: &alter,
+		}
+	} else {
+		if p.curToken.IsLF() {
+			p.next()
+		}
+		return ast.IfExpression{
+			Token:       token,
+			Condition:   cond,
+			Consequence: &conseq,
+		}
 	}
 }
 

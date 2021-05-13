@@ -166,7 +166,7 @@ LOOP:
 			return tokens.NToken(tokens.GTEq, ">=", loc)
 		}
 		l.advance(1)
-		return tokens.NToken(tokens.GT, "<", loc)
+		return tokens.NToken(tokens.GT, ">", loc)
 	case l.cur.Equal(":"):
 		l.advance(1)
 		return tokens.NToken(tokens.Colon, ":", loc)

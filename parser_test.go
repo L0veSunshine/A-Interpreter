@@ -6,17 +6,20 @@ import (
 )
 
 var s = `10/2-9*8*2`
-var s1 = `var a=1
+var s1 = `{var a=1
 var b=a+3
 b=b+2*a
-return 6*a
+c=-1+2
+d=1<=2
+return 6*a}
 `
-var s2 = "d=(2*b)+a+c"
+var s2 = `if (a<=3)
+{a=a+3}`
 
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s1)
+	lex := NewLexer(s2)
 	p := NewParser(lex)
-	ast := p.Parse()
+	ast := p.parseIfExpression()
 	if !p.HasError() {
 		fmt.Println(ast.Str())
 	} else {

@@ -101,3 +101,26 @@ func (es ExprStatement) Str() string {
 	}
 	return ""
 }
+
+type BlockStatement struct {
+	Token      tokens.Token
+	Statements []Statement
+}
+
+func (bs BlockStatement) StatementNode() {}
+func (bs BlockStatement) TokenLiteral() string {
+	return bs.Token.Literal
+}
+
+func (bs BlockStatement) Str() string {
+	var sb strings.Builder
+	sb.WriteString("Statements:{")
+	for i, s := range bs.Statements {
+		sb.WriteString(s.Str())
+		if i != len(bs.Statements)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
