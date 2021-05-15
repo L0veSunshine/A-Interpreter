@@ -16,10 +16,24 @@ return 6*a}
 var s2 = `if (a<=3)
 {a=a+3}`
 
+var s3 = `for (a<=1)
+{
+a=a+1
+b=1
+if (b==1)
+{
+b=b+1
+for (b<=10){
+b=b+0.5}
+}
+}
+for(i>=10){
+i=i-1}`
+
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s2)
+	lex := NewLexer(s3)
 	p := NewParser(lex)
-	ast := p.parseIfExpression()
+	ast := p.Parse()
 	if !p.HasError() {
 		fmt.Println(ast.Str())
 	} else {

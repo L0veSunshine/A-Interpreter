@@ -114,7 +114,7 @@ func (bs BlockStatement) TokenLiteral() string {
 
 func (bs BlockStatement) Str() string {
 	var sb strings.Builder
-	sb.WriteString("Statements:{")
+	sb.WriteString("Stmts:{")
 	for i, s := range bs.Statements {
 		sb.WriteString(s.Str())
 		if i != len(bs.Statements)-1 {

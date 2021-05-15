@@ -42,6 +42,7 @@ func NewParser(lex *Lexer) *Parser {
 	p.regPrefixFn(tokens.False, p.parseBoolean)
 	p.regPrefixFn(tokens.True, p.parseBoolean)
 	p.regPrefixFn(tokens.If, p.parseIfExpression)
+	p.regPrefixFn(tokens.For, p.parseForExpr)
 
 	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
@@ -82,6 +83,12 @@ func (p *Parser) find(Type string) bool {
 	return p.curToken.Type == Type
 }
 
+func (p *Parser) skipLF() {
+	for p.curToken.IsLF() {
+		p.next()
+	}
+}
+
 func (p *Parser) eatPeek(Type string) bool {
 	if p.peekToken.Type == Type {
 		p.next()
@@ -94,7 +101,7 @@ func (p *Parser) eatPeek(Type string) bool {
 
 func (p *Parser) parseProgram() ast.Program {
 	var statements []ast.Statement
-	for p.curToken.IsEOF() {
+	for !p.curToken.IsEOF() {
 		stmt := p.parseStatement()
 		if stmt != nil {
 			statements = append(statements, stmt)
@@ -267,6 +274,7 @@ func (p *Parser) parseBoolean() ast.Expression {
 func (p *Parser) parseBlockStatement() ast.BlockStatement {
 	token := *p.curToken
 	p.eat(tokens.LBRACE)
+	p.skipLF()
 	var s []ast.Statement
 	for p.curToken.Type != tokens.RBRACE && !p.curToken.IsEOF() {
 		stmt := p.parseStatement()
@@ -274,6 +282,7 @@ func (p *Parser) parseBlockStatement() ast.BlockStatement {
 			s = append(s, stmt)
 		}
 		p.next() //skip }
+		p.skipLF()
 	}
 	p.eat(tokens.RBRACE)
 	return ast.BlockStatement{
@@ -296,9 +305,6 @@ func (p *Parser) parseIfExpression() ast.Expression {
 	if p.curToken.Type == tokens.Else {
 		p.eat(tokens.Else)
 		alter := p.parseBlockStatement()
-		if p.curToken.IsLF() {
-			p.next()
-		}
 		return ast.IfExpression{
 			Token:       token,
 			Condition:   cond,
@@ -306,14 +312,29 @@ func (p *Parser) parseIfExpression() ast.Expression {
 			Alternative: &alter,
 		}
 	} else {
-		if p.curToken.IsLF() {
-			p.next()
-		}
 		return ast.IfExpression{
 			Token:       token,
 			Condition:   cond,
 			Consequence: &conseq,
 		}
+	}
+}
+
+func (p *Parser) parseForExpr() ast.Expression {
+	token := *p.curToken //token 'for'
+	p.eat(tokens.For)
+	p.eat(tokens.LParen)
+	cond := p.parseExpr(LOWEST)
+	p.next()
+	p.eat(tokens.RParen)
+	if !p.find(tokens.LBRACE) {
+		p.NewError(`loop need warped by "{}".`)
+	}
+	loop := p.parseBlockStatement()
+	return ast.ForExpression{
+		Token:     token,
+		Condition: cond,
+		Loop:      &loop,
 	}
 }
 

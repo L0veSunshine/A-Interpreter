@@ -117,3 +117,21 @@ func (i IfExpression) Str() string {
 	}
 	return sb.String()
 }
+
+type ForExpression struct {
+	Token     tokens.Token
+	Condition Expression
+	Loop      *BlockStatement
+}
+
+func (fe ForExpression) expressionNode() {}
+func (fe ForExpression) TokenLiteral() string {
+	return fe.Token.Literal
+}
+
+func (fe ForExpression) Str() string {
+	var sb strings.Builder
+	sb.WriteString("For(" + fe.Condition.Str() + ")")
+	sb.WriteString(fe.Loop.Str())
+	return sb.String()
+}
