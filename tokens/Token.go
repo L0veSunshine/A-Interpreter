@@ -23,6 +23,10 @@ const (
 	GT    = "GT"    // >
 	GTEq  = "GTEq"  // >=
 
+	And = "And"
+	Or  = "Or"
+	Not = "Not"
+
 	LParen = "LParen" // (
 	RParen = "RParen" // )
 	LBRACE = "LBRACE" // {
@@ -57,6 +61,9 @@ var Reserved = map[string]string{
 	"return": Return,
 	"true":   True,
 	"false":  False,
+	"and":    And,
+	"or":     Or,
+	"not":    Not,
 }
 
 type Locate struct {

@@ -13,6 +13,14 @@ const (
 	OpDiv
 	OpFloor
 	OpPow
+	OpGT
+	OpGTEq
+	OpEqual
+	OpNotEQ
+
+	OpAnd
+	OpOr
+	OpNot
 
 	OpMinus
 	OpPlus

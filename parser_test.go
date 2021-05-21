@@ -16,7 +16,10 @@ return 6*a}
 var s2 = `if (a<=3)
 {a=a+3}`
 
-var s3 = `for (a<=1)
+var s3 = `
+var a=1
+a=a+1
+for (a<=1)
 {
 a=a+1
 b=1
@@ -27,11 +30,18 @@ for (b<=10){
 b=b+0.5}
 }
 }
-for(i>=10){
-i=i-1}`
+if(a<b){for(i>=10){
+i=i-1}
+}else{
+b=1}
+`
+
+var s4 = `"hello "+"world"`
+
+var s5 = `true and false `
 
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s3)
+	lex := NewLexer(s5)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -39,17 +49,25 @@ func TestParser_Parse(t *testing.T) {
 	} else {
 		fmt.Println(p.errs, len(p.errs))
 	}
+	c := NewCompiler()
+	c.Compile(ast)
+	fmt.Println(c.ByteCode())
+	fmt.Println(c.errs)
+	//vm := NewVM()
+	//err := vm.Run(c.ByteCode())
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//fmt.Println(vm.LastPop().Type())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
-	inter := NewExe()
 	for i := 0; i < b.N; i++ {
-		lex := NewLexer(s)
+		lex := NewLexer(s3)
 		p := NewParser(lex)
-		ast := p.Parse()
-		inter.visit(ast)
+		p.Parse()
 	}
 }
 

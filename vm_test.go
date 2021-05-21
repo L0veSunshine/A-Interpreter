@@ -13,11 +13,11 @@ func TestAll(t *testing.T) {
 	nodes := p.Parse()
 	comp := NewCompiler()
 	comp.Compile(nodes)
-	vm := NewVM(comp.ByteCode())
+	vm := NewVM()
 	fmt.Println(comp.ByteCode().Instruction, comp.ByteCode().Constants)
-	err := vm.Run()
+	err := vm.Run(comp.ByteCode())
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(vm.stack, vm.sp)
+	fmt.Println(vm.LastPop().Inspect())
 }

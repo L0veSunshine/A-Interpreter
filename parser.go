@@ -56,6 +56,9 @@ func NewParser(lex *Lexer) *Parser {
 	p.regInfixFn(tokens.GTEq, p.parseInfixExpr)
 	p.regInfixFn(tokens.Equal, p.parseInfixExpr)
 	p.regInfixFn(tokens.NotEq, p.parseInfixExpr)
+	p.regInfixFn(tokens.And, p.parseInfixExpr)
+	p.regInfixFn(tokens.Or, p.parseInfixExpr)
+	p.regInfixFn(tokens.Not, p.parseInfixExpr)
 
 	p.next()
 	p.next()
@@ -119,6 +122,9 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseAssignStatement()
 	case tokens.Return:
 		return p.parseReturnStatement()
+	case tokens.LF:
+		p.next()
+		return p.parseStatement()
 	default:
 		res := p.parseExprStatement()
 		if p.peekToken.IsLF() {
@@ -265,9 +271,13 @@ func (p *Parser) parseString() ast.Expression {
 }
 
 func (p *Parser) parseBoolean() ast.Expression {
+	boolVal, err := strconv.ParseBool(p.curToken.Literal)
+	if err != nil {
+		p.Push(err)
+	}
 	return ast.BooleanNode{
 		Token: *p.curToken,
-		Value: p.curToken.Literal,
+		Value: boolVal,
 	}
 }
 
@@ -301,21 +311,21 @@ func (p *Parser) parseIfExpression() ast.Expression {
 	if !p.find(tokens.LBRACE) {
 		p.NewError(`condition need warped by "{}".`)
 	}
-	conseq := p.parseBlockStatement()
+	conSeq := p.parseBlockStatement()
 	if p.curToken.Type == tokens.Else {
 		p.eat(tokens.Else)
 		alter := p.parseBlockStatement()
 		return ast.IfExpression{
 			Token:       token,
 			Condition:   cond,
-			Consequence: &conseq,
+			Consequence: &conSeq,
 			Alternative: &alter,
 		}
 	} else {
 		return ast.IfExpression{
 			Token:       token,
 			Condition:   cond,
-			Consequence: &conseq,
+			Consequence: &conSeq,
 		}
 	}
 }

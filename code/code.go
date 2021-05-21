@@ -18,6 +18,14 @@ var definitions = map[Opcode]Definition{
 	OpDiv:      {"OpDiv", []int{}},
 	OpMinus:    {"OpMinus", []int{}},
 	OpPlus:     {"OpPlus", []int{}},
+	OpPow:      {"OpPow", []int{}},
+	OpEqual:    {"OpEqual", []int{}},
+	OpNotEQ:    {"OpNotEQ", []int{}},
+	OpGT:       {"OpGT", []int{}},
+	OpGTEq:     {"OpGTEq", []int{}},
+	OpAnd:      {"OpAnd", []int{}},
+	OpOr:       {"OpOr", []int{}},
+	OpNot:      {"OpNot", []int{}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

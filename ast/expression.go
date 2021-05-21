@@ -3,6 +3,7 @@ package ast
 import (
 	"Interpreter/tokens"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -68,7 +69,7 @@ func (i IdentNode) Str() string {
 
 type BooleanNode struct {
 	Token tokens.Token
-	Value string
+	Value bool
 }
 
 func (b BooleanNode) expressionNode() {}
@@ -77,7 +78,7 @@ func (b BooleanNode) TokenLiteral() string {
 }
 
 func (b BooleanNode) Str() string {
-	return b.Value
+	return strconv.FormatBool(b.Value)
 }
 
 type StringNode struct {
@@ -108,12 +109,12 @@ func (i IfExpression) TokenLiteral() string {
 
 func (i IfExpression) Str() string {
 	var sb strings.Builder
-	sb.WriteString("if (")
+	sb.WriteString("If (")
 	sb.WriteString(i.Condition.Str() + ") ")
 	sb.WriteString(i.Consequence.Str())
 	if i.Alternative != nil {
-		sb.WriteString("else (")
-		sb.WriteString(i.Alternative.Str() + ")")
+		sb.WriteString("Else (")
+		sb.WriteString(i.Alternative.Str() + ") ")
 	}
 	return sb.String()
 }
@@ -131,7 +132,7 @@ func (fe ForExpression) TokenLiteral() string {
 
 func (fe ForExpression) Str() string {
 	var sb strings.Builder
-	sb.WriteString("For(" + fe.Condition.Str() + ")")
+	sb.WriteString("For (" + fe.Condition.Str() + ") ")
 	sb.WriteString(fe.Loop.Str())
 	return sb.String()
 }

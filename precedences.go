@@ -14,6 +14,7 @@ const (
 	PRODUCT   // *,/,//
 	POW       //**
 	PREFIX    // -x,!x
+	COMPARE   // and,or,not
 	CALL
 )
 
@@ -35,4 +36,7 @@ var precedences = map[string]int{
 	tokens.GT:     GreatLess,
 	tokens.LTEq:   GreatLess,
 	tokens.GTEq:   GreatLess,
+	tokens.And:    COMPARE,
+	tokens.Or:     COMPARE,
+	tokens.Not:    COMPARE,
 }
