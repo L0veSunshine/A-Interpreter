@@ -35,13 +35,18 @@ i=i-1}
 }else{
 b=1}
 `
+var s8 = `1+2+3`
 
 var s4 = `"hello "+"world"`
 
-var s5 = `true and false `
+var s5 = `false and not true`
+
+var s6 = `if (1<2){10}`
+
+var s7 = `for(1>2){10}`
 
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s5)
+	lex := NewLexer(s7)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -53,12 +58,12 @@ func TestParser_Parse(t *testing.T) {
 	c.Compile(ast)
 	fmt.Println(c.ByteCode())
 	fmt.Println(c.errs)
-	//vm := NewVM()
-	//err := vm.Run(c.ByteCode())
-	//if err != nil {
-	//	fmt.Println(err)
-	//}
-	//fmt.Println(vm.LastPop().Type())
+	vm := NewVM()
+	err := vm.Run(c.ByteCode())
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(vm.LastPop())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {

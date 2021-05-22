@@ -36,6 +36,7 @@ func NewParser(lex *Lexer) *Parser {
 	p.regPrefixFn(tokens.LParen, p.parseGroupedExpr)
 	p.regPrefixFn(tokens.Plus, p.parsePrefixExpr)
 	p.regPrefixFn(tokens.Minus, p.parsePrefixExpr)
+	p.regPrefixFn(tokens.Not, p.parsePrefixExpr)
 	p.regPrefixFn(tokens.Number, p.parseNumber)
 	p.regPrefixFn(tokens.Ident, p.parseIdentifier)
 	p.regPrefixFn(tokens.String, p.parseString)
@@ -58,7 +59,6 @@ func NewParser(lex *Lexer) *Parser {
 	p.regInfixFn(tokens.NotEq, p.parseInfixExpr)
 	p.regInfixFn(tokens.And, p.parseInfixExpr)
 	p.regInfixFn(tokens.Or, p.parseInfixExpr)
-	p.regInfixFn(tokens.Not, p.parseInfixExpr)
 
 	p.next()
 	p.next()
@@ -224,7 +224,11 @@ func (p *Parser) curPrecedence() int {
 func (p *Parser) parsePrefixExpr() ast.Expression {
 	token := *p.curToken
 	p.next()
-	right := p.parseExpr(PREFIX)
+	var priority = PREFIX
+	if token.Type == tokens.Not {
+		priority = COMPARE
+	}
+	right := p.parseExpr(priority)
 	return ast.PrefixExpr{
 		Op:    token,
 		Right: right,

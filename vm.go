@@ -32,6 +32,7 @@ func (vm *VM) LastPop() object.Object {
 
 func (vm *VM) push(obj object.Object) error {
 	if vm.sp+1 > StackSize {
+		fmt.Println(vm.stack)
 		return fmt.Errorf("stack overflow")
 	}
 	vm.stack[vm.sp] = obj
@@ -45,7 +46,7 @@ func (vm *VM) pop() object.Object {
 	return obj
 }
 
-func (vm *VM) Run(bytecode *Bytecode) error {
+func (vm *VM) Run(bytecode *code.Bytecode) error {
 	vm.instructions = bytecode.Instruction
 	vm.constants = bytecode.Constants
 	for ip := 0; ip < len(vm.instructions); ip++ {
@@ -58,6 +59,18 @@ func (vm *VM) Run(bytecode *Bytecode) error {
 			if err != nil {
 				return err
 			}
+		case code.OpTrue, code.OpFalse:
+			if op == code.OpTrue {
+				err := vm.push(nativeBoolToBool(true))
+				if err != nil {
+					return err
+				}
+			} else {
+				err := vm.push(nativeBoolToBool(false))
+				if err != nil {
+					return err
+				}
+			}
 		case code.OpPop:
 			vm.pop()
 		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpFloor:
@@ -65,7 +78,7 @@ func (vm *VM) Run(bytecode *Bytecode) error {
 			if err != nil {
 				return err
 			}
-		case code.OpPlus, code.OpMinus:
+		case code.OpPlus, code.OpMinus, code.OpNot:
 			err := vm.executePrefix(op)
 			if err != nil {
 				return err
@@ -74,6 +87,27 @@ func (vm *VM) Run(bytecode *Bytecode) error {
 			err := vm.compareBinOp(op)
 			if err != nil {
 				return err
+			}
+		case code.OpAnd, code.OpOr:
+			err := vm.logicBinOp(op)
+			if err != nil {
+				return err
+			}
+		case code.OpNull:
+			err := vm.push(object.Null{})
+			if err != nil {
+				return err
+			}
+		case code.OpJump:
+			pos := int(code.ReadUint16(vm.instructions[ip+1:]))
+			ip = pos - 1
+		case code.OpJumpNotTrue:
+			pos := int(code.ReadUint16(vm.instructions[ip+1:]))
+			ip += 2 //skip the operand of code.OpJumpNotTrue
+			cond := vm.pop()
+			boolVal := objToNativeBool(cond)
+			if !boolVal {
+				ip = pos - 1
 			}
 		}
 	}
@@ -89,7 +123,6 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	case right.Type() == object.StringObj && left.Type() == object.StringObj:
 		return vm.executeBinOpStr(op, left, right)
 	}
-
 	return fmt.Errorf("unsupported types for binary operation: %s %s",
 		left.Type(), right.Type())
 }
@@ -110,6 +143,26 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 		return fmt.Errorf("unsupport operator for object: %d", op)
 	}
 	return vm.push(nativeBoolToBool(res))
+}
+
+func (vm *VM) logicBinOp(op code.Opcode) error {
+	right := vm.pop()
+	left := vm.pop()
+	switch {
+	case left.Type() == object.BooleanObj && right.Type() == object.BooleanObj:
+		var res bool
+		leftVal := left.(object.Boolean).Value
+		rightVal := right.(object.Boolean).Value
+		switch op {
+		case code.OpAnd:
+			res = leftVal && rightVal
+		case code.OpOr:
+			res = leftVal || rightVal
+		}
+		return vm.push(nativeBoolToBool(res))
+	default:
+		return fmt.Errorf("unsporrted type %s", right.Type())
+	}
 }
 
 func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
@@ -133,6 +186,23 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 
 func nativeBoolToBool(b bool) object.Boolean {
 	return object.Boolean{Value: b}
+}
+
+func objToNativeBool(obj object.Object) bool {
+	switch obj := obj.(type) {
+	case object.Boolean:
+		if obj.Value {
+			return true
+		}
+		return false
+	case object.Number:
+		if obj.Value == 0 {
+			return false
+		}
+		return true
+	default:
+		return true
+	}
 }
 
 func (vm *VM) executeBinOpNum(op code.Opcode, left, right object.Object) error {
@@ -173,17 +243,26 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 }
 
 func (vm *VM) executePrefix(op code.Opcode) error {
-	operand := vm.pop()
-	if operand.Type() != object.NumberObj {
-		return fmt.Errorf("unsupported type for negation: %s", operand.Type())
+	token := vm.pop()
+	switch token.Type() {
+	case object.NumberObj:
+		value := token.(object.Number).Value
+		switch op {
+		case code.OpMinus:
+			value = -value
+		case code.OpPlus:
+		default:
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+		}
+		return vm.push(object.Number{Value: value})
+	case object.BooleanObj:
+		value := token.(object.Boolean).Value
+		if op == code.OpNot {
+			value = !value
+		} else {
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+		}
+		return vm.push(nativeBoolToBool(value))
 	}
-	value := operand.(object.Number).Value
-	switch op {
-	case code.OpMinus:
-		value = -value
-	case code.OpPlus:
-	default:
-		return fmt.Errorf("unkonwn opCode %s", string(op))
-	}
-	return vm.push(object.Number{Value: value})
+	return fmt.Errorf("unsupported type for negation: %s", token.Type())
 }

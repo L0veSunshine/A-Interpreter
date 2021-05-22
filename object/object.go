@@ -48,3 +48,14 @@ func (s String) Type() ObjType {
 func (s String) Inspect() string {
 	return s.Value
 }
+
+type Null struct {
+}
+
+func (n Null) Type() ObjType {
+	return NullObj
+}
+
+func (n Null) Inspect() string {
+	return ""
+}

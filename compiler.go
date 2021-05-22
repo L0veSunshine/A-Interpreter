@@ -19,15 +19,21 @@ type Compiler struct {
 
 func NewCompiler() *Compiler {
 	return &Compiler{
+		Errors:       NewErr(),
 		instructions: code.Instructions{},
 		constants:    []object.Object{},
-		Errors:       NewErr(),
+		lastIns:      InsFlag{},
+		prevIns:      InsFlag{},
 	}
 }
 
 func (c *Compiler) Compile(node ast.Node) {
 	switch node := node.(type) {
 	case ast.Program:
+		for _, s := range node.Statements {
+			c.Compile(s)
+		}
+	case *ast.BlockStatement:
 		for _, s := range node.Statements {
 			c.Compile(s)
 		}
@@ -43,9 +49,12 @@ func (c *Compiler) Compile(node ast.Node) {
 		consIdx := c.addConstant(strObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.BooleanNode:
-		boolObj := object.Boolean{Value: node.Value}
-		consIdx := c.addConstant(boolObj)
-		c.emit(code.OpConstant, consIdx)
+		value := node.Value
+		if value {
+			c.emit(code.OpTrue)
+		} else {
+			c.emit(code.OpFalse)
+		}
 	case ast.PrefixExpr:
 		c.Compile(node.Right)
 		switch node.Op.Type {
@@ -53,6 +62,8 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.emit(code.OpPlus)
 		case tokens.Minus:
 			c.emit(code.OpMinus)
+		case tokens.Not:
+			c.emit(code.OpNot)
 		default:
 			c.NewErrorF("unknown operator %s", node.Op.Str())
 		}
@@ -97,11 +108,40 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.emit(code.OpAnd)
 		case tokens.Or:
 			c.emit(code.OpOr)
-		case tokens.Not:
-			c.emit(code.OpNot)
 		default:
 			c.NewErrorF("unknown operator %s", node.Op.Str())
 		}
+	case ast.IfExpression:
+		c.Compile(node.Condition)
+		jumpNotTruePos := c.emit(code.OpJumpNotTrue, 9999)
+		c.Compile(node.Consequence)
+		if c.isLastIns(code.OpPop) {
+			c.removeLastOp()
+		}
+		jumpPos := c.emit(code.OpJump, 9999)
+		afterConSeqPos := len(c.instructions)
+		c.changeOperand(jumpNotTruePos, afterConSeqPos)
+		if node.Alternative == nil {
+			c.emit(code.OpNull)
+		} else {
+			c.Compile(node.Alternative)
+			if c.isLastIns(code.OpPop) {
+				c.removeLastOp()
+			}
+		}
+		afterAlterPos := len(c.instructions)
+		c.changeOperand(jumpPos, afterAlterPos)
+	case ast.ForExpression:
+		forStatPos := len(c.instructions)
+		c.Compile(node.Condition)
+		breakPos := c.emit(code.OpJumpNotTrue, 9999)
+		c.Compile(node.Loop)
+		if c.isLastIns(code.OpPop) {
+			c.removeLastOp()
+		}
+		c.emit(code.OpJump, forStatPos)
+		c.changeOperand(breakPos, len(c.instructions))
+		c.emit(code.OpNull)
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
 	}
@@ -112,11 +152,12 @@ func (c *Compiler) addConstant(obj object.Object) (idx int) {
 	return len(c.constants) - 1
 }
 
-func (c *Compiler) emit(op code.Opcode, operand ...int) {
+func (c *Compiler) emit(op code.Opcode, operand ...int) int {
 	ins := code.Make(op, operand...)
 	pos := len(c.instructions)
 	c.instructions = append(c.instructions, ins...)
 	c.setLastIns(op, pos)
+	return pos
 }
 
 func (c *Compiler) setLastIns(op code.Opcode, pos int) {
@@ -126,16 +167,31 @@ func (c *Compiler) setLastIns(op code.Opcode, pos int) {
 	c.lastIns = last
 }
 
-func (c *Compiler) ByteCode() *Bytecode {
-	return &Bytecode{
+func (c *Compiler) ByteCode() *code.Bytecode {
+	return &code.Bytecode{
 		Instruction: c.instructions,
 		Constants:   c.constants,
 	}
 }
+func (c *Compiler) isLastIns(op code.Opcode) bool {
+	return c.lastIns.op == op
+}
 
-type Bytecode struct {
-	Instruction code.Instructions
-	Constants   []object.Object
+func (c *Compiler) removeLastOp() {
+	c.instructions = c.instructions[:c.lastIns.offset]
+	c.lastIns = c.prevIns
+}
+
+func (c *Compiler) replaceIns(offset int, newIns []byte) {
+	for i := 0; i < len(newIns); i++ {
+		c.instructions[offset+i] = newIns[i]
+	}
+}
+
+func (c *Compiler) changeOperand(opPos int, operand int) {
+	op := code.Opcode(c.instructions[opPos])
+	newIns := code.Make(op, operand)
+	c.replaceIns(opPos, newIns)
 }
 
 type InsFlag struct {

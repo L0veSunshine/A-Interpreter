@@ -1,6 +1,8 @@
 package code
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type Instructions []byte
 
@@ -10,22 +12,30 @@ type Definition struct {
 }
 
 var definitions = map[Opcode]Definition{
-	OpConstant: {"OpConstant", []int{2}},
-	OpPop:      {"OpPop", []int{}},
-	OpAdd:      {"OpAdd", []int{}},
-	OpSub:      {"OpSub", []int{}},
-	OpMul:      {"OpMul", []int{}},
-	OpDiv:      {"OpDiv", []int{}},
-	OpMinus:    {"OpMinus", []int{}},
-	OpPlus:     {"OpPlus", []int{}},
-	OpPow:      {"OpPow", []int{}},
-	OpEqual:    {"OpEqual", []int{}},
-	OpNotEQ:    {"OpNotEQ", []int{}},
-	OpGT:       {"OpGT", []int{}},
-	OpGTEq:     {"OpGTEq", []int{}},
-	OpAnd:      {"OpAnd", []int{}},
-	OpOr:       {"OpOr", []int{}},
-	OpNot:      {"OpNot", []int{}},
+	OpConstant:    {"OpConstant", []int{2}},
+	OpPop:         {"OpPop", []int{}},
+	OpAdd:         {"OpAdd", []int{}},
+	OpSub:         {"OpSub", []int{}},
+	OpMul:         {"OpMul", []int{}},
+	OpDiv:         {"OpDiv", []int{}},
+	OpMinus:       {"OpMinus", []int{}},
+	OpPlus:        {"OpPlus", []int{}},
+	OpFloor:       {"OpFloor", []int{}},
+	OpPow:         {"OpPow", []int{}},
+	OpEqual:       {"OpEqual", []int{}},
+	OpNotEQ:       {"OpNotEQ", []int{}},
+	OpGT:          {"OpGT", []int{}},
+	OpGTEq:        {"OpGTEq", []int{}},
+	OpAnd:         {"OpAnd", []int{}},
+	OpOr:          {"OpOr", []int{}},
+	OpNot:         {"OpNot", []int{}},
+	OpTrue:        {"OpTrue", []int{}},
+	OpFalse:       {"OpFalse", []int{}},
+	OpJump:        {"OpJump", []int{2}},
+	OpJumpNotTrue: {"OpJumpNotTrue", []int{2}},
+	OpNull:        {"OpNull", []int{}},
+	OpGetGlobal:   {"OpGetGlobal", []int{2}},
+	OpSetGlobal:   {"OpSetGlobal", []int{2}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

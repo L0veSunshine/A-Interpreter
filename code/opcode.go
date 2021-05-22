@@ -7,6 +7,9 @@ const (
 	OpConstant
 	OpPop
 
+	OpTrue
+	OpFalse
+
 	OpAdd
 	OpSub
 	OpMul
@@ -24,4 +27,12 @@ const (
 
 	OpMinus
 	OpPlus
+
+	OpJump
+	OpJumpNotTrue
+
+	OpNull
+
+	OpGetGlobal
+	OpSetGlobal
 )
