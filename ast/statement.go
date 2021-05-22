@@ -71,8 +71,9 @@ func (rs ReturnStatement) Str() string {
 }
 
 type AssignStatement struct {
-	Ident     tokens.Token // ident
-	Statement Expression
+	Ident      tokens.Token // ident
+	Identifier IdentNode
+	Statement  Expression
 }
 
 func (as AssignStatement) StatementNode() {}
@@ -81,7 +82,7 @@ func (as AssignStatement) TokenLiteral() string {
 }
 func (as AssignStatement) Str() string {
 	var sb strings.Builder
-	sb.WriteString(as.Ident.Literal + " = ")
+	sb.WriteString("assign: " + as.Identifier.Value + " = ")
 	sb.WriteString(as.Statement.Str())
 	return sb.String()
 }

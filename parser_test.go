@@ -45,8 +45,18 @@ var s6 = `if (1<2){10}`
 
 var s7 = `for(1>2){10}`
 
+var s9 = `var a=9
+var b=10
+var c=11
+a=a+1
+a=b+a+5+c`
+
+var s10 = `var a=10
+for(a<12){
+a=a+2}`
+
 func TestParser_Parse(t *testing.T) {
-	lex := NewLexer(s7)
+	lex := NewLexer(s10)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -56,8 +66,7 @@ func TestParser_Parse(t *testing.T) {
 	}
 	c := NewCompiler()
 	c.Compile(ast)
-	fmt.Println(c.ByteCode())
-	fmt.Println(c.errs)
+	c.Debug()
 	vm := NewVM()
 	err := vm.Run(c.ByteCode())
 	if err != nil {

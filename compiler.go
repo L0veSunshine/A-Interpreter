@@ -5,14 +5,19 @@ import (
 	"Interpreter/code"
 	"Interpreter/object"
 	"Interpreter/tokens"
+	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 )
 
 type Compiler struct {
 	*Errors
 
+	debug        bool
 	instructions code.Instructions
 	constants    []object.Object
+	symbolTable  *SymbolTable
 	lastIns,
 	prevIns InsFlag
 }
@@ -20,10 +25,27 @@ type Compiler struct {
 func NewCompiler() *Compiler {
 	return &Compiler{
 		Errors:       NewErr(),
+		debug:        false,
 		instructions: code.Instructions{},
 		constants:    []object.Object{},
+		symbolTable:  NewSymbolTable(),
 		lastIns:      InsFlag{},
 		prevIns:      InsFlag{},
+	}
+}
+
+func (c *Compiler) Debug() {
+	c.debug = true
+	if c.debug {
+		ls := strings.Repeat("=", 40)
+		fmt.Println(ls)
+		fmt.Printf("%25s\n", "Byte Code")
+		fmt.Println(ls)
+		fmt.Println(c.ByteCode())
+		fmt.Println(ls)
+		if len(c.errs) != 0 {
+			fmt.Println("ERROR:", c.errs)
+		}
 	}
 }
 
@@ -142,6 +164,24 @@ func (c *Compiler) Compile(node ast.Node) {
 		c.emit(code.OpJump, forStatPos)
 		c.changeOperand(breakPos, len(c.instructions))
 		c.emit(code.OpNull)
+	case ast.VarStatement:
+		c.Compile(node.Value)
+		symbol := c.symbolTable.Define(node.Indent.Value)
+		c.emit(code.OpSetGlobal, symbol.Index)
+	case ast.IdentNode:
+		symbol, ok := c.symbolTable.Resolve(node.Value)
+		if !ok {
+			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
+		}
+		c.emit(code.OpGetGlobal, symbol.Index)
+	case ast.AssignStatement:
+		c.Compile(node.Statement)
+		symbol, ok := c.symbolTable.Resolve(node.Identifier.Value)
+		if !ok {
+			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
+		} else {
+			c.emit(code.OpSetGlobal, symbol.Index)
+		}
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
 	}
@@ -168,11 +208,13 @@ func (c *Compiler) setLastIns(op code.Opcode, pos int) {
 }
 
 func (c *Compiler) ByteCode() *code.Bytecode {
-	return &code.Bytecode{
+	byCode := &code.Bytecode{
 		Instruction: c.instructions,
 		Constants:   c.constants,
 	}
+	return byCode
 }
+
 func (c *Compiler) isLastIns(op code.Opcode) bool {
 	return c.lastIns.op == op
 }

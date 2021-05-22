@@ -22,10 +22,10 @@ func (b Bytecode) String() string {
 			args := b.getArgs(def, operand)
 			order := fmt.Sprintf(`%4d `, i)
 			sb.WriteString(order + def.Name + " " + args)
+			i += offset
 			if i != len(b.Instruction)-1 {
 				sb.WriteString("\n")
 			}
-			i += offset
 		} else {
 			continue
 		}

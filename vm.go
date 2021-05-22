@@ -8,13 +8,16 @@ import (
 	"math"
 )
 
-const StackSize = 2048
+const (
+	StackSize  = 2048
+	GlobalSize = 65536
+)
 
 type VM struct {
-	constants    []object.Object
-	instructions code.Instructions
-	stack        []object.Object
-	sp           int
+	constants      []object.Object
+	instructions   code.Instructions
+	stack, globals []object.Object
+	sp             int
 }
 
 func NewVM() *VM {
@@ -22,6 +25,7 @@ func NewVM() *VM {
 		constants:    nil,
 		instructions: nil,
 		stack:        make([]object.Object, StackSize),
+		globals:      make([]object.Object, GlobalSize),
 		sp:           0,
 	}
 }
@@ -108,6 +112,17 @@ func (vm *VM) Run(bytecode *code.Bytecode) error {
 			boolVal := objToNativeBool(cond)
 			if !boolVal {
 				ip = pos - 1
+			}
+		case code.OpSetGlobal:
+			globalIdx := code.ReadUint16(vm.instructions[ip+1:])
+			ip += 2 //skip the operand of code.OpSetGlobal
+			vm.globals[globalIdx] = vm.pop()
+		case code.OpGetGlobal:
+			globalIdx := code.ReadUint16(vm.instructions[ip+1:])
+			ip += 2 //skip the operand of code.OpGetGlobal
+			err := vm.push(vm.globals[globalIdx])
+			if err != nil {
+				return err
 			}
 		}
 	}

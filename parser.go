@@ -119,7 +119,10 @@ func (p *Parser) parseStatement() ast.Statement {
 	case tokens.Var:
 		return p.parseVarStatement()
 	case tokens.Ident:
-		return p.parseAssignStatement()
+		if p.peekToken.Type == tokens.Assign {
+			return p.parseAssignStatement()
+		}
+		return p.parseExprStatement()
 	case tokens.Return:
 		return p.parseReturnStatement()
 	case tokens.LF:
@@ -169,6 +172,7 @@ func (p *Parser) parseReturnStatement() ast.Statement {
 
 func (p *Parser) parseAssignStatement() ast.Statement {
 	Ident := *p.curToken // Ident token
+	identifier := p.parseIdentifier()
 	p.eat(tokens.Ident)
 	p.eat(tokens.Assign)
 	stmt := p.parseExpr(LOWEST)
@@ -176,8 +180,9 @@ func (p *Parser) parseAssignStatement() ast.Statement {
 		p.next()
 	}
 	return ast.AssignStatement{
-		Ident:     Ident,
-		Statement: stmt,
+		Ident:      Ident,
+		Identifier: identifier.(ast.IdentNode),
+		Statement:  stmt,
 	}
 }
 
