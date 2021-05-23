@@ -180,7 +180,7 @@ func (c *Compiler) Compile(node ast.Node) {
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
 		} else {
-			c.emit(code.OpSetGlobal, symbol.Index)
+			c.emit(code.OpUpdate, symbol.Index)
 		}
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())

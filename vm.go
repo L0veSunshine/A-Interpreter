@@ -50,6 +50,14 @@ func (vm *VM) pop() object.Object {
 	return obj
 }
 
+func (vm *VM) last() object.Object {
+	idx := vm.sp - 1
+	if idx >= 0 {
+		return vm.stack[idx]
+	}
+	return nil
+}
+
 func (vm *VM) Run(bytecode *code.Bytecode) error {
 	vm.instructions = bytecode.Instruction
 	vm.constants = bytecode.Constants
@@ -123,6 +131,13 @@ func (vm *VM) Run(bytecode *code.Bytecode) error {
 			err := vm.push(vm.globals[globalIdx])
 			if err != nil {
 				return err
+			}
+		case code.OpUpdate:
+			globalIdx := code.ReadUint16(vm.instructions[ip+1:])
+			ip += 2 //skip the operand of code.OpUpdate
+			vm.globals[globalIdx] = vm.last()
+			if vm.sp > 1 {
+				vm.sp--
 			}
 		}
 	}

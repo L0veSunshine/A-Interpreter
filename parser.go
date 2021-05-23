@@ -266,10 +266,11 @@ func (p *Parser) parseNumber() ast.Expression {
 }
 
 func (p *Parser) parseIdentifier() ast.Expression {
-	return ast.IdentNode{
+	node := ast.IdentNode{
 		Token: *p.curToken,
 		Value: p.curToken.Literal,
 	}
+	return node
 }
 
 func (p *Parser) parseString() ast.Expression {

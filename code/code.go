@@ -36,6 +36,7 @@ var definitions = map[Opcode]Definition{
 	OpNull:        {"OpNull", []int{}},
 	OpGetGlobal:   {"OpGetGlobal", []int{2}},
 	OpSetGlobal:   {"OpSetGlobal", []int{2}},
+	OpUpdate:      {"OpUpdate", []int{2}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

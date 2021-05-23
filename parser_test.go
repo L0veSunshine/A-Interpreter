@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 var s = `10/2-9*8*2`
@@ -51,11 +52,23 @@ var c=11
 a=a+1
 a=b+a+5+c`
 
-var s10 = `var a=10
-for(a<12){
-a=a+2}`
+var s10 = `var a=1
+var sum=0
+var b=1000
+for(a<=1000000){
+if(a-(a//3)*3==1){
+sum=sum+a}
+a=a+1
+b=b-1}
+sum`
+
+var s11 = `var a=1
+a=a+1
+a=a+1
+a=a+1`
 
 func TestParser_Parse(t *testing.T) {
+	st := time.Now()
 	lex := NewLexer(s10)
 	p := NewParser(lex)
 	ast := p.Parse()
@@ -72,7 +85,8 @@ func TestParser_Parse(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(vm.LastPop())
+	fmt.Println(time.Since(st).Seconds())
+	//fmt.Println(vm.LastPop().Inspect())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {
