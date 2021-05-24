@@ -35,22 +35,23 @@ func (vm *VM) LastPop() object.Object {
 }
 
 func (vm *VM) push(obj object.Object) error {
-	if vm.sp+1 > StackSize {
-		fmt.Println(vm.stack)
+	nIdx := vm.sp + 1
+	if nIdx > StackSize {
 		return fmt.Errorf("stack overflow")
 	}
 	vm.stack[vm.sp] = obj
-	vm.sp++
+	vm.sp = nIdx
 	return nil
 }
 
 func (vm *VM) pop() object.Object {
-	obj := vm.stack[vm.sp-1]
-	vm.sp--
+	nIdx := vm.sp - 1
+	obj := vm.stack[nIdx]
+	vm.sp = nIdx
 	return obj
 }
 
-func (vm *VM) last() object.Object {
+func (vm *VM) top() object.Object {
 	idx := vm.sp - 1
 	if idx >= 0 {
 		return vm.stack[idx]
@@ -135,7 +136,7 @@ func (vm *VM) Run(bytecode *code.Bytecode) error {
 		case code.OpUpdate:
 			globalIdx := code.ReadUint16(vm.instructions[ip+1:])
 			ip += 2 //skip the operand of code.OpUpdate
-			vm.globals[globalIdx] = vm.last()
+			vm.globals[globalIdx] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}
