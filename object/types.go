@@ -8,4 +8,6 @@ const (
 	FloatObj   = "FLOAT"
 	BooleanObj = "BOOLEAN"
 	StringObj  = "STRING"
+
+	BuiltinObj = "BUILTIN"
 )

@@ -1,11 +1,9 @@
 package main
 
 import (
-	"Interpreter/object"
 	"fmt"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 var s = `10/2-9*8*2`
@@ -62,11 +60,23 @@ sum=sum+a}
 a=a+1}
 sum`
 
-var s11 = `5.2%2`
+var s11 = `var a=2
+var sum=0
+for(a<10000){
+var count=0
+var b=2
+for(b<a){
+if(a%b==0){
+count=count+1}
+b=b+1}
+if(count==0){
+sum=sum+a}
+a=a+1}
+sum`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s10)
+	lex := NewLexer(s11)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -88,7 +98,7 @@ func TestParser_Parse(t *testing.T) {
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := NewLexer(s10)
+	lex := NewLexer(s11)
 	p := NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {
@@ -128,9 +138,17 @@ func Test1(t *testing.T) {
 }
 
 func TestAsz(t *testing.T) {
-	obj := object.Int{Value: 124232}
-	a := object.Object(obj)
-	z := unsafe.Pointer(&a)
-	x := *(*float64)(z)
-	fmt.Println(x)
+	sum := 0
+	for i := 2; i < 10000; i++ {
+		count := 0
+		for j := 2; j < i; j++ {
+			if i%j == 0 {
+				count++
+			}
+		}
+		if count == 0 {
+			sum += i
+		}
+	}
+	fmt.Println(sum)
 }

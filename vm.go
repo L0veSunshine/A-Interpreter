@@ -164,7 +164,7 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.pop()
 	if left.Type() == object.IntObj && right.Type() == object.IntObj {
-		return vm.compareIntObj(op, left, right)
+		return vm.compareNumObj(op, left, right)
 	}
 	var res bool
 	switch op {
@@ -198,9 +198,21 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 	}
 }
 
-func (vm *VM) compareIntObj(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.Int).Value
-	rightVal := right.(object.Int).Value
+func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
+	var leftVal float64
+	var rightVal float64
+	switch left.(type) {
+	case object.Int:
+		leftVal = float64(left.(object.Int).Value)
+	case object.Float:
+		leftVal = left.(object.Float).Value
+	}
+	switch right.(type) {
+	case object.Int:
+		rightVal = float64(right.(object.Int).Value)
+	case object.Float:
+		rightVal = right.(object.Float).Value
+	}
 	var res bool
 	switch op {
 	case code.OpEqual:

@@ -4,6 +4,8 @@ import (
 	"strconv"
 )
 
+type BuiltinFunction func(args ...Object) Object
+
 type ObjType string
 
 type Object interface {
@@ -71,4 +73,16 @@ func (n Null) Type() ObjType {
 
 func (n Null) Inspect() string {
 	return ""
+}
+
+type Builtin struct {
+	Fn BuiltinFunction
+}
+
+func (b Builtin) Type() ObjType {
+	return BuiltinObj
+}
+
+func (b Builtin) Inspect() string {
+	return "builtin function"
 }
