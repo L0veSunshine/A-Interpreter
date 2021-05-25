@@ -11,16 +11,29 @@ type Object interface {
 	Inspect() string
 }
 
-type Number struct {
+type Int struct {
+	Value int
+}
+
+func (n Int) Type() ObjType {
+	return IntObj
+}
+
+func (n Int) Inspect() string {
+	s := strconv.Itoa(n.Value)
+	return s
+}
+
+type Float struct {
 	Value float64
 }
 
-func (n Number) Type() ObjType {
-	return NumberObj
+func (f Float) Type() ObjType {
+	return FloatObj
 }
 
-func (n Number) Inspect() string {
-	s := strconv.FormatFloat(n.Value, 'f', -1, 64)
+func (f Float) Inspect() string {
+	s := strconv.FormatFloat(f.Value, 'f', -1, 64)
 	return s
 }
 

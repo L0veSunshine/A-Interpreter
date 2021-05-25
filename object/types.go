@@ -4,7 +4,8 @@ const (
 	NullObj  = "NULL"
 	ErrorObj = "ERROR"
 
-	NumberObj  = "INTEGER"
+	IntObj     = "INT"
+	FloatObj   = "FLOAT"
 	BooleanObj = "BOOLEAN"
 	StringObj  = "STRING"
 )

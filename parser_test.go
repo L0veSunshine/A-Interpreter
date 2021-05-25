@@ -1,9 +1,11 @@
 package main
 
 import (
+	"Interpreter/object"
 	"fmt"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 var s = `10/2-9*8*2`
@@ -54,18 +56,13 @@ a=b+a+5+c`
 
 var s10 = `var a=1
 var sum=0
-var b=1000
-for(a<=1000000){
-if(a-(a//3)*3==1){
+for(a<=10000000){
+if(a%3==1){
 sum=sum+a}
-a=a+1
-b=b-1}
+a=a+1}
 sum`
 
-var s11 = `var a=1
-a=a+1
-a=a+1
-a=a+1`
+var s11 = `5.2%2`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
@@ -86,7 +83,31 @@ func TestParser_Parse(t *testing.T) {
 		fmt.Println(err)
 	}
 	fmt.Println(time.Since(st).Seconds())
-	//fmt.Println(vm.LastPop().Inspect())
+	fmt.Println(vm.LastPop().Inspect())
+}
+func BenchmarkExec(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	lex := NewLexer(s10)
+	p := NewParser(lex)
+	ast := p.Parse()
+	//if !p.HasError() {
+	//	fmt.Println(ast.Str())
+	//} else {
+	//	fmt.Println(p.errs, len(p.errs))
+	//}
+	c := NewCompiler()
+	c.Compile(ast)
+	//c.Debug()
+	vm := NewVM()
+	var err error
+	for i := 0; i < b.N; i++ {
+		err = vm.Run(c.ByteCode())
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	fmt.Println(vm.LastPop().Inspect())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {
@@ -104,4 +125,12 @@ func Test1(t *testing.T) {
 	b := []int{3, 4, 5, 6}
 	a = append(a, b...)
 	fmt.Println(a)
+}
+
+func TestAsz(t *testing.T) {
+	obj := object.Int{Value: 124232}
+	a := object.Object(obj)
+	z := unsafe.Pointer(&a)
+	x := *(*float64)(z)
+	fmt.Println(x)
 }

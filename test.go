@@ -1,15 +1,9 @@
 package main
 
-func main() {
-	//run()
-	//expr := "1-2**(3*0.5)"
-	//lex := NewLexer(expr)
-	//p := NewParser(lex)
-	//r := p.Parse()
-	//fmt.Println(r.ToString())
-	//res := Exec(r)
-	//fmt.Println(res)
-}
+import (
+	"fmt"
+	"unsafe"
+)
 
 //func run() {
 //	defer func() {
@@ -33,3 +27,24 @@ func main() {
 //		fmt.Println(res)
 //	}
 //}
+type A struct {
+	X int
+	Y int
+	Z int
+}
+
+type B struct {
+	A, B, C int
+}
+
+func main() {
+	a := new(A)
+	a.X = 1
+	a.Y = 2
+	b := new(B)
+	b.A = 1
+	b.B = 2
+	p := unsafe.Pointer(&b)
+	co := *(*A)(p)
+	fmt.Println(b.B, co.Z, co.Y)
+}

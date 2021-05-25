@@ -37,7 +37,8 @@ func NewParser(lex *Lexer) *Parser {
 	p.regPrefixFn(tokens.Plus, p.parsePrefixExpr)
 	p.regPrefixFn(tokens.Minus, p.parsePrefixExpr)
 	p.regPrefixFn(tokens.Not, p.parsePrefixExpr)
-	p.regPrefixFn(tokens.Number, p.parseNumber)
+	p.regPrefixFn(tokens.Int, p.parseInt)
+	p.regPrefixFn(tokens.Float, p.parseFloat)
 	p.regPrefixFn(tokens.Ident, p.parseIdentifier)
 	p.regPrefixFn(tokens.String, p.parseString)
 	p.regPrefixFn(tokens.False, p.parseBoolean)
@@ -49,7 +50,7 @@ func NewParser(lex *Lexer) *Parser {
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Mul, p.parseInfixExpr)
 	p.regInfixFn(tokens.Div, p.parseInfixExpr)
-	p.regInfixFn(tokens.Floor, p.parseInfixExpr)
+	p.regInfixFn(tokens.Mod, p.parseInfixExpr)
 	p.regInfixFn(tokens.Pow, p.parseInfixExpr)
 	p.regInfixFn(tokens.LT, p.parseInfixExpr)
 	p.regInfixFn(tokens.LTEq, p.parseInfixExpr)
@@ -252,14 +253,27 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 	}
 }
 
-func (p *Parser) parseNumber() ast.Expression {
+func (p *Parser) parseInt() ast.Expression {
+	var token = *p.curToken
+	IntVal, e := strconv.ParseInt(p.curToken.Literal, 10, 64)
+	if e != nil {
+		p.Push(e)
+		return nil
+	}
+	return ast.IntNode{
+		Token: token,
+		Value: int(IntVal),
+	}
+}
+
+func (p *Parser) parseFloat() ast.Expression {
 	var token = *p.curToken
 	floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
 	if e != nil {
 		p.Push(e)
 		return nil
 	}
-	return ast.NumberNode{
+	return ast.FloatNode{
 		Token: token,
 		Value: floatVal,
 	}

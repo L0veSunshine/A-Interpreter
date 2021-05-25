@@ -86,9 +86,9 @@ func (l *Lexer) number() *tokens.Token {
 			value = append(value, l.cur.Rune())
 			l.advance(1)
 		}
-		return tokens.NToken(tokens.Number, string(value), l.loc)
+		return tokens.NToken(tokens.Float, string(value), l.loc)
 	} else {
-		return tokens.NToken(tokens.Number, string(value), l.loc)
+		return tokens.NToken(tokens.Int, string(value), l.loc)
 	}
 }
 
@@ -188,12 +188,11 @@ LOOP:
 		l.advance(1)
 		return tokens.NToken(tokens.Mul, "*", loc)
 	case l.cur.Equal("/"):
-		if l.peek().Equal("/") {
-			l.advance(2)
-			return tokens.NToken(tokens.Floor, "//", loc)
-		}
 		l.advance(1)
 		return tokens.NToken(tokens.Div, "/", loc)
+	case l.cur.Equal("%"):
+		l.advance(1)
+		return tokens.NToken(tokens.Mod, "%", loc)
 	case l.cur.Equal(`"`):
 		return l.string()
 	case l.cur.Equal("("):

@@ -20,7 +20,7 @@ var definitions = map[Opcode]Definition{
 	OpDiv:         {"OpDiv", []int{}},
 	OpMinus:       {"OpMinus", []int{}},
 	OpPlus:        {"OpPlus", []int{}},
-	OpFloor:       {"OpFloor", []int{}},
+	OpMod:         {"OpMod", []int{}},
 	OpPow:         {"OpPow", []int{}},
 	OpEqual:       {"OpEqual", []int{}},
 	OpNotEQ:       {"OpNotEQ", []int{}},

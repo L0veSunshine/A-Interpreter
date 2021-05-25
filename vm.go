@@ -86,7 +86,7 @@ func (vm *VM) Run(bytecode *code.Bytecode) error {
 			}
 		case code.OpPop:
 			vm.pop()
-		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpFloor:
+		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpMod:
 			err := vm.executeBinOp(op)
 			if err != nil {
 				return err
@@ -149,8 +149,10 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.pop()
 	switch {
-	case right.Type() == object.NumberObj && left.Type() == object.NumberObj:
-		return vm.executeBinOpNum(op, left, right)
+	case right.Type() == object.IntObj && left.Type() == object.IntObj:
+		return vm.executeBinOpInt(op, left, right)
+	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
+		return vm.executeBinOpFloat(op, left, right)
 	case right.Type() == object.StringObj && left.Type() == object.StringObj:
 		return vm.executeBinOpStr(op, left, right)
 	}
@@ -161,8 +163,8 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.pop()
-	if left.Type() == object.NumberObj && right.Type() == object.NumberObj {
-		return vm.compareNumObj(op, left, right)
+	if left.Type() == object.IntObj && right.Type() == object.IntObj {
+		return vm.compareIntObj(op, left, right)
 	}
 	var res bool
 	switch op {
@@ -196,9 +198,9 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 	}
 }
 
-func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.Number).Value
-	rightVal := right.(object.Number).Value
+func (vm *VM) compareIntObj(op code.Opcode, left, right object.Object) error {
+	leftVal := left.(object.Int).Value
+	rightVal := right.(object.Int).Value
 	var res bool
 	switch op {
 	case code.OpEqual:
@@ -226,7 +228,12 @@ func objToNativeBool(obj object.Object) bool {
 			return true
 		}
 		return false
-	case object.Number:
+	case object.Int:
+		if obj.Value == 0 {
+			return false
+		}
+		return true
+	case object.Float:
 		if obj.Value == 0 {
 			return false
 		}
@@ -236,9 +243,51 @@ func objToNativeBool(obj object.Object) bool {
 	}
 }
 
-func (vm *VM) executeBinOpNum(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.Number).Value
-	rightVal := right.(object.Number).Value
+func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
+	leftVal := left.(object.Int).Value
+	rightVal := right.(object.Int).Value
+	var res int
+	var fRes float64
+	switch op {
+	case code.OpAdd:
+		res = leftVal + rightVal
+	case code.OpSub:
+		res = leftVal - rightVal
+	case code.OpMul:
+		res = leftVal * rightVal
+	case code.OpDiv:
+		if rightVal != 0 {
+			fRes = float64(leftVal) / float64(rightVal)
+		} else {
+			return errors.New("division by zero")
+		}
+		return vm.push(object.Float{Value: fRes})
+	case code.OpMod:
+		res = leftVal % rightVal
+	case code.OpPow:
+		fRes = math.Pow(float64(leftVal), float64(rightVal))
+		return vm.push(object.Float{Value: fRes})
+	default:
+		return fmt.Errorf("unknown integer operator: %d", op)
+	}
+	return vm.push(object.Int{Value: res})
+}
+
+func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error {
+	var leftVal float64
+	var rightVal float64
+	switch left.(type) {
+	case object.Int:
+		leftVal = float64(left.(object.Int).Value)
+	case object.Float:
+		leftVal = left.(object.Float).Value
+	}
+	switch right.(type) {
+	case object.Int:
+		rightVal = float64(right.(object.Int).Value)
+	case object.Float:
+		rightVal = right.(object.Float).Value
+	}
 	var res float64
 	switch op {
 	case code.OpAdd:
@@ -253,14 +302,14 @@ func (vm *VM) executeBinOpNum(op code.Opcode, left, right object.Object) error {
 		} else {
 			return errors.New("division by zero")
 		}
-	case code.OpFloor:
-		res = math.Floor(leftVal / rightVal)
+	case code.OpMod:
+		res = math.Mod(leftVal, rightVal)
 	case code.OpPow:
 		res = math.Pow(leftVal, rightVal)
 	default:
 		return fmt.Errorf("unknown integer operator: %d", op)
 	}
-	return vm.push(object.Number{Value: res})
+	return vm.push(object.Float{Value: res})
 }
 
 func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
@@ -276,8 +325,8 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 func (vm *VM) executePrefix(op code.Opcode) error {
 	token := vm.pop()
 	switch token.Type() {
-	case object.NumberObj:
-		value := token.(object.Number).Value
+	case object.IntObj:
+		value := token.(object.Int).Value
 		switch op {
 		case code.OpMinus:
 			value = -value
@@ -285,7 +334,17 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 		default:
 			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
 		}
-		return vm.push(object.Number{Value: value})
+		return vm.push(object.Int{Value: value})
+	case object.FloatObj:
+		value := token.(object.Float).Value
+		switch op {
+		case code.OpMinus:
+			value = -value
+		case code.OpPlus:
+		default:
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+		}
+		return vm.push(object.Float{Value: value})
 	case object.BooleanObj:
 		value := token.(object.Boolean).Value
 		if op == code.OpNot {

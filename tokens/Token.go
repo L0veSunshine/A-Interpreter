@@ -6,15 +6,16 @@ import (
 )
 
 const (
-	Number = "Number"
-	Ident  = "Ident"
+	Int    = "Int"
+	Float  = "Float"
+	String = "String"
 
 	Plus  = "Plus"  // +
 	Minus = "Minus" // -
 	Pow   = "Pow"   // **
 	Mul   = "Mul"   // *
 	Div   = "Div"   // /
-	Floor = "Floor" // //
+	Mod   = "Mod"   // %
 
 	Equal = "Equal" // ==
 	NotEq = "NotEq" // !=
@@ -41,7 +42,7 @@ const (
 	Return = "Return"
 	Assign = "Assign"
 
-	String = "String"
+	Ident = "Ident"
 
 	Dot   = "Dot"   //.
 	Colon = "Colon" //:

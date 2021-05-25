@@ -14,7 +14,7 @@ const (
 	OpSub
 	OpMul
 	OpDiv
-	OpFloor
+	OpMod
 	OpPow
 	OpGT
 	OpGTEq

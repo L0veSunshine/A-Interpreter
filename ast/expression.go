@@ -39,18 +39,32 @@ func (pe PrefixExpr) Str() string {
 		pe.Right.Str())
 }
 
-type NumberNode struct {
+type IntNode struct {
+	Token tokens.Token
+	Value int
+}
+
+func (n IntNode) expressionNode() {}
+func (n IntNode) TokenLiteral() string {
+	return n.Token.Literal
+}
+
+func (n IntNode) Str() string {
+	return n.Token.Literal
+}
+
+type FloatNode struct {
 	Token tokens.Token
 	Value float64
 }
 
-func (n NumberNode) expressionNode() {}
-func (n NumberNode) TokenLiteral() string {
-	return n.Token.Literal
+func (fn FloatNode) expressionNode() {}
+func (fn FloatNode) TokenLiteral() string {
+	return fn.Token.Literal
 }
 
-func (n NumberNode) Str() string {
-	return n.Token.Literal
+func (fn FloatNode) Str() string {
+	return fn.Token.Literal
 }
 
 type IdentNode struct {

@@ -62,8 +62,12 @@ func (c *Compiler) Compile(node ast.Node) {
 	case ast.ExprStatement:
 		c.Compile(node.Expression)
 		c.emit(code.OpPop)
-	case ast.NumberNode:
-		numObj := object.Number{Value: node.Value}
+	case ast.IntNode:
+		numObj := object.Int{Value: node.Value}
+		consIdx := c.addConstant(numObj)
+		c.emit(code.OpConstant, consIdx)
+	case ast.FloatNode:
+		numObj := object.Float{Value: node.Value}
 		consIdx := c.addConstant(numObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.StringNode:
@@ -114,8 +118,8 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.emit(code.OpMul)
 		case tokens.Div:
 			c.emit(code.OpDiv)
-		case tokens.Floor:
-			c.emit(code.OpFloor)
+		case tokens.Mod:
+			c.emit(code.OpMod)
 		case tokens.Pow:
 			c.emit(code.OpPow)
 		case tokens.GT:
