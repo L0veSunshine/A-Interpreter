@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Interpreter/object"
 	"fmt"
 	"testing"
 	"time"
@@ -74,9 +75,16 @@ sum=sum+a}
 a=a+1}
 sum`
 
+var s12 = `var a=1
+var b=0
+for(a<=10000000)
+{b=b+a
+a=a+1}
+b`
+
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s11)
+	lex := NewLexer(s12)
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -98,7 +106,7 @@ func TestParser_Parse(t *testing.T) {
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := NewLexer(s11)
+	lex := NewLexer(s12)
 	p := NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {
@@ -151,4 +159,21 @@ func TestAsz(t *testing.T) {
 		}
 	}
 	fmt.Println(sum)
+}
+
+func BenchmarkName1(b *testing.B) {
+	var ls [10]object.Object
+	var sls []object.Object
+	sls = append(sls, object.Int{Value: 1})
+	ls[0] = object.Int{Value: 1}
+	ls[1] = object.Int{Value: 2}
+	var obj object.Object
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		//*(*uint64)(x) = val
+		obj = ls[0]
+		//obj = *(*object.Object)(unsafe.Pointer(&ls))
+	}
+	fmt.Println(obj.Inspect())
 }
