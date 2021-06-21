@@ -3,6 +3,7 @@ package main
 import (
 	"Interpreter/ast"
 	"Interpreter/tokens"
+	"fmt"
 	"strconv"
 )
 
@@ -45,6 +46,7 @@ func NewParser(lex *Lexer) *Parser {
 	p.regPrefixFn(tokens.True, p.parseBoolean)
 	p.regPrefixFn(tokens.If, p.parseIfExpression)
 	p.regPrefixFn(tokens.For, p.parseForExpr)
+	p.regPrefixFn(tokens.Func, p.parseFuncDef)
 
 	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
@@ -60,6 +62,8 @@ func NewParser(lex *Lexer) *Parser {
 	p.regInfixFn(tokens.NotEq, p.parseInfixExpr)
 	p.regInfixFn(tokens.And, p.parseInfixExpr)
 	p.regInfixFn(tokens.Or, p.parseInfixExpr)
+
+	p.regInfixFn(tokens.LParen, p.parseCallFunc)
 
 	p.next()
 	p.next()
@@ -372,100 +376,77 @@ func (p *Parser) parseForExpr() ast.Expression {
 	}
 }
 
-//func (p *Parser) factor() Node {
-//	tokens := p.curToken
-//	switch tokens.Type {
-//	case Plus:
-//		p.eat(Plus)
-//		return PrefixExpr{
-//			Right: p.factor(),
-//			Op:    *tokens,
-//		}
-//	case Minus:
-//		p.eat(Minus)
-//		return PrefixExpr{
-//			Right: p.factor(),
-//			Op:    *tokens,
-//		}
-//	case LParen:
-//		p.eat(LParen)
-//		val := p.expr()
-//		p.eat(RParen)
-//		return val
-//	case Number:
-//		floatVal, e := strconv.ParseFloat(p.curToken.Literal, 64)
-//		var tokens = *p.curToken
-//		if e != nil {
-//			p.Push(e)
-//			return nil
-//		}
-//		p.eat(Number)
-//		return NumberNode{
-//			Token: tokens,
-//			Value: floatVal,
-//		}
-//	default:
-//		return nil
-//	}
-//}
+func (p *Parser) parseFuncParams() []ast.IdentNode {
+	var params []ast.IdentNode
+	p.eat(tokens.LParen)
+	if p.peekToken.Type == tokens.RParen {
+		p.next()
+		return params
+	}
+	param := ast.IdentNode{
+		Token: *p.curToken,
+		Value: p.curToken.Literal,
+	}
+	p.next()
+	params = append(params, param)
+	for p.curToken.Type == tokens.Comma {
+		p.next() //skip comma
+		param := ast.IdentNode{
+			Token: *p.curToken,
+			Value: p.curToken.Literal,
+		}
+		params = append(params, param)
+		p.next()
+	}
+	p.eat(tokens.RParen)
+	return params
+}
 
-//func (p *Parser) term() Node {
-//	var node Node
-//	node = p.midFactor()
-//	for p.curToken.Type == Mul || p.curToken.Type == Div ||
-//		p.curToken.Type == Floor {
-//		tokens := *p.curToken
-//		if p.curToken.Type == Mul {
-//			p.eat(Mul)
-//		} else if p.curToken.Type == Floor {
-//			p.eat(Floor)
-//		} else if p.curToken.Type == Div {
-//			p.eat(Div)
-//		}
-//		node = InfixExpr{
-//			Left:  node,
-//			Right: p.midFactor(),
-//			Op:    tokens,
-//		}
-//	}
-//	return node
-//}
+func (p *Parser) parseFuncDef() ast.Expression {
+	token := p.curToken
+	p.eat(tokens.Func)
+	name := p.curToken.Literal
+	p.next()
+	params := p.parseFuncParams()
+	fmt.Println(p.curToken)
+	body := p.parseBlockStatement()
+	return ast.FuncDef{
+		Token:      *token,
+		Parameters: params,
+		FuncBody:   &body,
+		Name:       name,
+	}
+}
 
-//func (p *Parser) midFactor() Node {
-//	var node Node
-//	node = p.factor()
-//	for p.curToken.Type == Pow {
-//		tokens := *p.curToken
-//		if p.curToken.Type == Pow {
-//			p.eat(Pow)
-//		}
-//		node = InfixExpr{
-//			Left:  node,
-//			Right: p.factor(),
-//			Op:    tokens,
-//		}
-//	}
-//	return node
-//}
+func (p *Parser) parseCallArgs() []ast.Expression {
+	var args []ast.Expression
+	p.eat(tokens.LParen)
+	if p.peekToken.Type == tokens.RParen {
+		p.eat(tokens.RParen)
+		return args
+	}
+	arg := p.parseExpr(LOWEST)
+	p.next()
+	args = append(args, arg)
+	for p.curToken.Type == tokens.Comma {
+		p.next()
+		arg := p.parseExpr(LOWEST)
+		args = append(args, arg)
+		p.next()
+	}
+	return args
+}
 
-//func (p *Parser) expr() Node {
-//	var node Node
-//	node = p.term()
-//	for p.curToken.Type == Plus || p.curToken.Type == Minus {
-//		tokens := *p.curToken
-//		if p.curToken.Type == Plus {
-//			p.eat(Plus)
-//		} else if p.curToken.Type == Minus {
-//			p.eat(Minus)
-//		}
-//		node = InfixExpr{
-//			Left:  node,
-//			Op:    tokens,
-//			Right: p.term(),
-//		}
-//	}
-//	return node
-//}
+func (p *Parser) parseCallFunc(function ast.Expression) ast.Expression {
+	token := p.curToken
+	args := p.parseCallArgs()
+	expr := ast.FuncCallExpr{
+		Token:     *token,
+		Function:  function,
+		Arguments: args,
+	}
+	return expr
+}
 
 func (p *Parser) parseGroupedExpr() ast.Expression {
 	p.eat(tokens.LParen)

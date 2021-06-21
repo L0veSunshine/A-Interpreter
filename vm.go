@@ -180,7 +180,8 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
-	if left.Type() == object.IntObj && right.Type() == object.IntObj {
+	if (left.Type() == object.IntObj || left.Type() == object.FloatObj) &&
+		(right.Type() == object.IntObj || right.Type() == object.FloatObj) {
 		return vm.compareNumObj(op, left, right)
 	}
 	var res bool

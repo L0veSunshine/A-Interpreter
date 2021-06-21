@@ -127,7 +127,7 @@ func (i IfExpression) Str() string {
 	sb.WriteString(i.Condition.Str() + ") ")
 	sb.WriteString(i.Consequence.Str())
 	if i.Alternative != nil {
-		sb.WriteString("Else (")
+		sb.WriteString(" Else (")
 		sb.WriteString(i.Alternative.Str() + ") ")
 	}
 	return sb.String()
@@ -148,5 +148,51 @@ func (fe ForExpression) Str() string {
 	var sb strings.Builder
 	sb.WriteString("For (" + fe.Condition.Str() + ") ")
 	sb.WriteString(fe.Loop.Str())
+	return sb.String()
+}
+
+type FuncDef struct {
+	Token      tokens.Token
+	Parameters []IdentNode
+	FuncBody   *BlockStatement
+	Name       string
+}
+
+func (fd FuncDef) expressionNode() {}
+func (fd FuncDef) TokenLiteral() string {
+	return fd.Token.Literal
+}
+
+func (fd FuncDef) Str() string {
+	var sb strings.Builder
+	var params []string
+	for _, p := range fd.Parameters {
+		params = append(params, p.Str())
+	}
+	sb.WriteString(fmt.Sprintf("Func: %s(", fd.Name))
+	sb.WriteString(strings.Join(params, ",") + ") {")
+	sb.WriteString(fd.FuncBody.Str() + "}")
+	return sb.String()
+}
+
+type FuncCallExpr struct {
+	Token     tokens.Token
+	Function  Expression
+	Arguments []Expression
+}
+
+func (fc FuncCallExpr) expressionNode() {}
+func (fc FuncCallExpr) TokenLiteral() string {
+	return fc.Token.Literal
+}
+
+func (fc FuncCallExpr) Str() string {
+	var sb strings.Builder
+	var args []string
+	for _, arg := range fc.Arguments {
+		args = append(args, arg.Str())
+	}
+	sb.WriteString(fc.Function.Str())
+	sb.WriteString("(" + strings.Join(args, ",") + ")")
 	return sb.String()
 }

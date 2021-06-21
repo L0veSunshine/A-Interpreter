@@ -35,18 +35,21 @@ func NewCompiler() *Compiler {
 }
 
 func (c *Compiler) Debug() {
+	ls := strings.Repeat("=", 40) + "\n"
 	c.debug = true
+	var sb strings.Builder
 	if c.debug {
-		ls := strings.Repeat("=", 40)
-		fmt.Println(ls)
-		fmt.Printf("%25s\n", "Byte Code")
-		fmt.Println(ls)
-		fmt.Println(c.ByteCode())
-		fmt.Println(ls)
+		sb.WriteString(ls)
+		sb.WriteString(fmt.Sprintf("%25s\n", "Byte Code"))
+		sb.WriteString(ls)
+		sb.WriteString(c.ByteCode().String() + "\n")
+		sb.WriteString(ls)
 		if len(c.errs) != 0 {
 			fmt.Println("ERROR:", c.errs)
+			return
 		}
 	}
+	fmt.Print(sb.String())
 }
 
 func (c *Compiler) Compile(node ast.Node) {
@@ -212,6 +215,9 @@ func (c *Compiler) setLastIns(op code.Opcode, pos int) {
 }
 
 func (c *Compiler) ByteCode() *code.Bytecode {
+	if c.HasError() {
+		return &code.Bytecode{}
+	}
 	byCode := &code.Bytecode{
 		Instruction: c.instructions,
 		Constants:   c.constants,

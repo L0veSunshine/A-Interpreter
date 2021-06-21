@@ -51,6 +51,8 @@ func (b *Bytecode) getArgs(def Definition, operand []int) string {
 		}
 		obj := b.Constants[idx]
 		args += " ==> " + string(obj.Type()) + " " + obj.Inspect()
+	case "OpUpdate":
+		args = " => var " + args
 	}
 	return args
 }

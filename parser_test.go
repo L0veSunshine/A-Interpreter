@@ -75,16 +75,35 @@ sum=sum+a}
 a=a+1}
 sum`
 
-var s12 = `var a=1
+var s12 = `
+var a=1
 var b=0
-for(a<=10000000)
-{b=b+a
-a=a+1}
+for(a<=101){
+	b=b+a
+	a=a+1
+}
 b`
+
+var s13 = `
+var t=15
+var i=10/2
+var const=0
+var tmp=9999
+for(tmp>0.000000001){
+i=i-(i**2-t)/(2*i)
+const=const+1
+if(i**2-t>0){
+tmp=i**2-t}else{
+tmp=-(i**2-t)}
+}
+i`
+
+var s14 = `true ==(1>-1)`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s12)
+	lex := NewLexer(s13)
+	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -172,8 +191,20 @@ func BenchmarkName1(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		//*(*uint64)(x) = val
-		obj = ls[0]
+		obj = sls[0]
 		//obj = *(*object.Object)(unsafe.Pointer(&ls))
 	}
 	fmt.Println(obj.Inspect())
+}
+
+var ori = `add(a,b){var a=1}`
+var ps = `(1+2,3+4,5+6)`
+var calls = `call(1+2,2+3)`
+
+func TestParseParams(t *testing.T) {
+
+	lex := NewLexer(calls)
+	p := NewParser(lex)
+	ast := p.Parse()
+	fmt.Println(ast.Str())
 }

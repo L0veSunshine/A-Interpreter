@@ -6,6 +6,7 @@ const (
 	_ Opcode = iota
 	OpConstant
 	OpPop
+	OpTop
 
 	OpTrue
 	OpFalse
