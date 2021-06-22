@@ -14,23 +14,27 @@ import (
 type Compiler struct {
 	*Errors
 
-	debug        bool
-	instructions code.Instructions
-	constants    []object.Object
-	symbolTable  *SymbolTable
-	lastIns,
-	prevIns InsFlag
+	debug       bool
+	constants   []object.Object
+	symbolTable *SymbolTable
+	scope       []CompilationScope
+	scopeIdx    int
 }
 
 func NewCompiler() *Compiler {
-	return &Compiler{
-		Errors:       NewErr(),
-		debug:        false,
+	rootScope := CompilationScope{
 		instructions: code.Instructions{},
-		constants:    []object.Object{},
-		symbolTable:  NewSymbolTable(),
-		lastIns:      InsFlag{},
-		prevIns:      InsFlag{},
+		lastIns:      EmittedIns{},
+		prevIns:      EmittedIns{},
+	}
+
+	return &Compiler{
+		Errors:      NewErr(),
+		debug:       false,
+		constants:   []object.Object{},
+		symbolTable: NewSymbolTable(),
+		scope:       []CompilationScope{rootScope},
+		scopeIdx:    0,
 	}
 }
 
@@ -148,7 +152,7 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.removeLastOp()
 		}
 		jumpPos := c.emit(code.OpJump, 9999)
-		afterConSeqPos := len(c.instructions)
+		afterConSeqPos := len(c.curInstruction())
 		c.changeOperand(jumpNotTruePos, afterConSeqPos)
 		if node.Alternative == nil {
 			c.emit(code.OpNull)
@@ -158,10 +162,10 @@ func (c *Compiler) Compile(node ast.Node) {
 				c.removeLastOp()
 			}
 		}
-		afterAlterPos := len(c.instructions)
+		afterAlterPos := len(c.curInstruction())
 		c.changeOperand(jumpPos, afterAlterPos)
 	case ast.ForExpression:
-		forStatPos := len(c.instructions)
+		forStatPos := len(c.curInstruction())
 		c.Compile(node.Condition)
 		breakPos := c.emit(code.OpJumpNotTrue, 9999)
 		c.Compile(node.Loop)
@@ -169,7 +173,7 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.removeLastOp()
 		}
 		c.emit(code.OpJump, forStatPos)
-		c.changeOperand(breakPos, len(c.instructions))
+		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
 	case ast.VarStatement:
 		c.Compile(node.Value)
@@ -201,17 +205,17 @@ func (c *Compiler) addConstant(obj object.Object) (idx int) {
 
 func (c *Compiler) emit(op code.Opcode, operand ...int) int {
 	ins := code.Make(op, operand...)
-	pos := len(c.instructions)
-	c.instructions = append(c.instructions, ins...)
+	pos := len(c.curInstruction())
+	c.scope[c.scopeIdx].instructions = append(c.curInstruction(), ins...)
 	c.setLastIns(op, pos)
 	return pos
 }
 
 func (c *Compiler) setLastIns(op code.Opcode, pos int) {
-	prevIns := c.lastIns
-	last := InsFlag{op: op, offset: pos}
-	c.prevIns = prevIns
-	c.lastIns = last
+	prevIns := c.scope[c.scopeIdx].lastIns
+	last := EmittedIns{op: op, offset: pos}
+	c.scope[c.scopeIdx].prevIns = prevIns
+	c.scope[c.scopeIdx].lastIns = last
 }
 
 func (c *Compiler) ByteCode() *code.Bytecode {
@@ -219,34 +223,51 @@ func (c *Compiler) ByteCode() *code.Bytecode {
 		return &code.Bytecode{}
 	}
 	byCode := &code.Bytecode{
-		Instruction: c.instructions,
+		Instruction: c.curInstruction(),
 		Constants:   c.constants,
 	}
 	return byCode
 }
 
 func (c *Compiler) isLastIns(op code.Opcode) bool {
-	return c.lastIns.op == op
+	if len(c.curInstruction()) == 0 {
+		return false
+	}
+	return c.curScope().lastIns.op == op
 }
 
 func (c *Compiler) removeLastOp() {
-	c.instructions = c.instructions[:c.lastIns.offset]
-	c.lastIns = c.prevIns
+	c.scope[c.scopeIdx].instructions = c.curInstruction()[:c.curScope().lastIns.offset]
+	c.scope[c.scopeIdx].lastIns = c.curScope().lastIns
 }
 
 func (c *Compiler) replaceIns(offset int, newIns []byte) {
 	for i := 0; i < len(newIns); i++ {
-		c.instructions[offset+i] = newIns[i]
+		c.scope[c.scopeIdx].instructions[offset+i] = newIns[i]
 	}
 }
 
 func (c *Compiler) changeOperand(opPos int, operand int) {
-	op := code.Opcode(c.instructions[opPos])
+	op := code.Opcode(c.curInstruction()[opPos])
 	newIns := code.Make(op, operand)
 	c.replaceIns(opPos, newIns)
 }
 
-type InsFlag struct {
+func (c *Compiler) curScope() CompilationScope {
+	return c.scope[c.scopeIdx]
+}
+
+func (c *Compiler) curInstruction() code.Instructions {
+	return c.curScope().instructions
+}
+
+type EmittedIns struct {
 	op     code.Opcode
 	offset int
+}
+
+type CompilationScope struct {
+	instructions code.Instructions
+	lastIns,
+	prevIns EmittedIns
 }
