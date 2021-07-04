@@ -3,7 +3,6 @@ package main
 import (
 	"Interpreter/ast"
 	"Interpreter/tokens"
-	"fmt"
 	"strconv"
 )
 
@@ -408,7 +407,6 @@ func (p *Parser) parseFuncDef() ast.Expression {
 	name := p.curToken.Literal
 	p.next()
 	params := p.parseFuncParams()
-	fmt.Println(p.curToken)
 	body := p.parseBlockStatement()
 	return ast.FuncDef{
 		Token:      *token,

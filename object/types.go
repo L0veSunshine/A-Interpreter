@@ -9,5 +9,6 @@ const (
 	BooleanObj = "BOOLEAN"
 	StringObj  = "STRING"
 
-	BuiltinObj = "BUILTIN"
+	BuiltinObj      = "BUILTIN"
+	CompiledFuncObj = "COMPILED"
 )

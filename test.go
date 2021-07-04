@@ -1,50 +1,69 @@
 package main
 
 import (
+	vm2 "Interpreter/vm"
 	"fmt"
-	"unsafe"
+	"sync"
 )
 
-//func run() {
-//	defer func() {
-//		if r := recover(); r != nil {
-//			run()
-//		}
-//	}()
-//	var expr []byte
-//	for {
-//		fmt.Print(">>>")
-//		reader := bufio.NewReader(os.Stdin)
-//		expr, _, _ = reader.ReadLine()
-//		if string(expr) == "exit" || string(expr) == "e" {
-//			break
-//		}
-//		lex := NewLexer(string(expr))
-//		p := NewParser(lex)
-//		r := p.Parse()
-//		fmt.Println(r.ToString())
-//		res := Exec(r)
-//		fmt.Println(res)
-//	}
-//}
-type A struct {
-	X int
-	Y int
-	Z int
+var c *Compiler
+var ones sync.Once
+
+func singleComp() *Compiler {
+	ones.Do(func() {
+		c = NewCompiler()
+	})
+	return c
 }
 
-type B struct {
-	A, B, C int
+func run(code string) string {
+	lex := NewLexer(code)
+	parser := NewParser(lex)
+	ast := parser.Parse()
+	if parser.HasError() {
+		return fmt.Sprint(parser.errs)
+	}
+	comp := singleComp()
+	comp.Compile(ast)
+	fmt.Println(comp.ByteCode())
+	vm := vm2.NewVM()
+	if err := vm.Run(comp.ByteCode()); err != nil {
+		return fmt.Sprint(err)
+	}
+	if vm.LastPop() != nil {
+		return vm.LastPop().Inspect()
+	}
+	return ""
 }
 
 func main() {
-	a := new(A)
-	a.X = 1
-	a.Y = 2
-	b := new(B)
-	b.A = 1
-	b.B = 2
-	p := unsafe.Pointer(&b)
-	co := *(*A)(p)
-	fmt.Println(b.B, co.Z, co.Y)
+	//var res string
+	//if len(os.Args) > 1 {
+	//	fArg := os.Args[1]
+	//	f, e := os.Open(fArg)
+	//	if e != nil {
+	//		fmt.Println(e)
+	//		return
+	//	}
+	//	bytes, err := io.ReadAll(f)
+	//	if err != nil {
+	//		fmt.Println(err)
+	//		return
+	//	}
+	//	res = run(string(bytes))
+	//	fmt.Print(res)
+	//} else {
+	//	var expr []byte
+	//	for {
+	//		fmt.Print(">>>")
+	//		reader := bufio.NewReader(os.Stdin)
+	//		expr, _, _ = reader.ReadLine()
+	//		if string(expr) == "exit" {
+	//			fmt.Print("Bye!")
+	//			break
+	//		}
+	//		res = run(string(expr))
+	//		fmt.Println(res)
+	//	}
+	//}
 }

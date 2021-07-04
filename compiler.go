@@ -2,6 +2,7 @@ package main
 
 import (
 	"Interpreter/ast"
+	"Interpreter/bytecode"
 	"Interpreter/code"
 	"Interpreter/object"
 	"Interpreter/tokens"
@@ -21,13 +22,17 @@ type Compiler struct {
 	scopeIdx    int
 }
 
-func NewCompiler() *Compiler {
-	rootScope := CompilationScope{
+func NewScope() CompilationScope {
+	s := CompilationScope{
 		instructions: code.Instructions{},
 		lastIns:      EmittedIns{},
 		prevIns:      EmittedIns{},
 	}
+	return s
+}
 
+func NewCompiler() *Compiler {
+	rootScope := NewScope()
 	return &Compiler{
 		Errors:      NewErr(),
 		debug:       false,
@@ -178,21 +183,52 @@ func (c *Compiler) Compile(node ast.Node) {
 	case ast.VarStatement:
 		c.Compile(node.Value)
 		symbol := c.symbolTable.Define(node.Indent.Value)
-		c.emit(code.OpSetGlobal, symbol.Index)
+		c.setScope(symbol)
 	case ast.IdentNode:
 		symbol, ok := c.symbolTable.Resolve(node.Value)
 		if !ok {
 			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
 		}
-		c.emit(code.OpGetGlobal, symbol.Index)
+		c.getScope(symbol)
 	case ast.AssignStatement:
 		c.Compile(node.Statement)
 		symbol, ok := c.symbolTable.Resolve(node.Identifier.Value)
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
 		} else {
-			c.emit(code.OpUpdate, symbol.Index)
+			c.updateScope(symbol)
 		}
+	case ast.FuncDef:
+		c.enterScope()
+
+		for _, p := range node.Parameters {
+			c.symbolTable.Define(p.Value)
+		}
+		c.Compile(node.FuncBody)
+		if c.isLastIns(code.OpPop) {
+			c.replaceLast(code.OpReturnVal)
+		}
+		if !c.isLastIns(code.OpReturnVal) {
+			c.emit(code.OpReturn)
+		}
+		numLocals := c.symbolTable.numDefinitions
+		instructions := c.leaveScope()
+
+		compiledFn := object.CompiledFunc{
+			Instructions:  instructions,
+			LocalsNum:     numLocals,
+			ParametersNum: len(node.Parameters),
+		}
+		c.emit(code.OpConstant, c.addConstant(compiledFn))
+	case ast.ReturnStatement:
+		c.Compile(node.ReturnVal)
+		c.emit(code.OpReturnVal)
+	case ast.FuncCallExpr:
+		c.Compile(node.Function)
+		for _, arg := range node.Arguments {
+			c.Compile(arg)
+		}
+		c.emit(code.OpCallFunc, len(node.Arguments))
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
 	}
@@ -218,11 +254,11 @@ func (c *Compiler) setLastIns(op code.Opcode, pos int) {
 	c.scope[c.scopeIdx].lastIns = last
 }
 
-func (c *Compiler) ByteCode() *code.Bytecode {
+func (c *Compiler) ByteCode() *bytecode.Bytecode {
 	if c.HasError() {
-		return &code.Bytecode{}
+		return &bytecode.Bytecode{}
 	}
-	byCode := &code.Bytecode{
+	byCode := &bytecode.Bytecode{
 		Instruction: c.curInstruction(),
 		Constants:   c.constants,
 	}
@@ -257,8 +293,57 @@ func (c *Compiler) curScope() CompilationScope {
 	return c.scope[c.scopeIdx]
 }
 
+func (c *Compiler) enterScope() {
+	s := NewScope()
+	c.scope = append(c.scope, s)
+	c.scopeIdx++
+	c.symbolTable = NewEnclosedSymbolTable(c.symbolTable)
+}
+
+func (c *Compiler) leaveScope() code.Instructions {
+	instructions := c.curInstruction()
+	c.scope = c.scope[:len(c.scope)-1]
+	c.scopeIdx--
+	c.symbolTable = c.symbolTable.Outer
+	return instructions
+}
+
 func (c *Compiler) curInstruction() code.Instructions {
 	return c.curScope().instructions
+}
+func (c *Compiler) replaceLast(target code.Opcode) {
+	lastPos := c.scope[c.scopeIdx].lastIns.offset
+	c.replaceIns(lastPos, code.Make(target))
+	c.scope[c.scopeIdx].lastIns.op = target
+}
+
+func (c *Compiler) getScope(s Symbol) {
+	switch s.Scope {
+	case GlobalScope:
+		c.emit(code.OpGetGlobal, s.Index)
+	case LocalScope:
+		c.emit(code.OpGetLocal, s.Index)
+	case BuiltinScope:
+		c.emit(code.OpGetBuiltin, s.Index)
+	}
+}
+
+func (c *Compiler) setScope(s Symbol) {
+	switch s.Scope {
+	case GlobalScope:
+		c.emit(code.OpSetGlobal, s.Index)
+	case LocalScope:
+		c.emit(code.OpSetLocal, s.Index)
+	}
+}
+
+func (c *Compiler) updateScope(s Symbol) {
+	switch s.Scope {
+	case GlobalScope:
+		c.emit(code.OpUpdateGlobal, s.Index)
+	case LocalScope:
+		c.emit(code.OpUpdateLocal, s.Index)
+	}
 }
 
 type EmittedIns struct {

@@ -1,6 +1,8 @@
 package object
 
 import (
+	"Interpreter/code"
+	"fmt"
 	"strconv"
 )
 
@@ -85,4 +87,18 @@ func (b Builtin) Type() ObjType {
 
 func (b Builtin) Inspect() string {
 	return "builtin function"
+}
+
+type CompiledFunc struct {
+	Instructions  code.Instructions
+	LocalsNum     int
+	ParametersNum int
+}
+
+func (cf CompiledFunc) Type() ObjType {
+	return CompiledFuncObj
+}
+
+func (cf CompiledFunc) Inspect() string {
+	return fmt.Sprintf("CompiledFunc[%p]", &cf)
 }

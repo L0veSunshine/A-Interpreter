@@ -56,7 +56,7 @@ const (
 var Reserved = map[string]string{
 	"var":    Var,
 	"for":    For,
-	"fn":     Func,
+	"def":    Func,
 	"if":     If,
 	"else":   Else,
 	"return": Return,

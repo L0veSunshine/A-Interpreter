@@ -2,6 +2,7 @@ package main
 
 import (
 	"Interpreter/object"
+	vm2 "Interpreter/vm"
 	"fmt"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func TestParser_Parse(t *testing.T) {
 	c := NewCompiler()
 	c.Compile(ast)
 	c.Debug()
-	vm := NewVM()
+	vm := vm2.NewVM()
 	err := vm.Run(c.ByteCode())
 	if err != nil {
 		fmt.Println(err)
@@ -135,8 +136,8 @@ func BenchmarkExec(b *testing.B) {
 	//}
 	c := NewCompiler()
 	c.Compile(ast)
-	//c.Debug()
-	vm := NewVM()
+	//c.ByteCode()
+	vm := vm2.NewVM()
 	var err error
 	for i := 0; i < b.N; i++ {
 		err = vm.Run(c.ByteCode())
@@ -197,14 +198,35 @@ func BenchmarkName1(b *testing.B) {
 	fmt.Println(obj.Inspect())
 }
 
-var ori = `add(a,b){var a=1}`
-var ps = `(1+2,3+4,5+6)`
-var calls = `call(1+2,2+3)`
+var ori = `
+var x=2
+var fn=def add(a,b){var c=1
+c=c-a-b
+var z=100
+return c}
+var a=1
+var b=1
+var c=1
+var r=fn(2,3)
+x=x+1
+x=x*r
+x`
+var ori1 = `var x=10
+var y=3
+x=x-y
+x`
 
 func TestParseParams(t *testing.T) {
-
-	lex := NewLexer(calls)
+	lex := NewLexer(ori)
 	p := NewParser(lex)
 	ast := p.Parse()
 	fmt.Println(ast.Str())
+	c := NewCompiler()
+	c.Compile(ast)
+	c.Debug()
+	vm := vm2.NewVM()
+	if err := vm.Run(c.ByteCode()); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(vm.LastPop().Inspect())
 }

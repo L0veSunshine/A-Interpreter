@@ -34,7 +34,17 @@ const (
 
 	OpNull
 
+	OpReturn
+	OpReturnVal
+
 	OpGetGlobal
 	OpSetGlobal
-	OpUpdate
+	OpGetLocal
+	OpSetLocal
+	OpUpdateGlobal
+	OpUpdateLocal
+
+	OpGetBuiltin
+
+	OpCallFunc
 )
