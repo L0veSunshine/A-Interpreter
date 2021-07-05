@@ -100,11 +100,11 @@ tmp=-(i**2-t)}
 }
 i`
 
-var s14 = `true ==(1>-1)`
+var s14 = `true ==(1<=-1)`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s13)
+	lex := NewLexer(s12)
 	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
@@ -214,12 +214,10 @@ x=a+1
 x=x*r
 x`
 
-var ori1 = `def add(a,b){
-var z=100
-var c=1
-c=c-a-b
-z=z-1
-return z}`
+var ori1 = `
+def add(a,b){
+return 2*a+b}
+`
 
 func TestParseParams(t *testing.T) {
 	lex := NewLexer(ori)

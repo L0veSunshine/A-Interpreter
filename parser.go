@@ -195,6 +195,10 @@ func (p *Parser) parseAssignStatement() ast.Statement {
 
 func (p *Parser) parseExprStatement() ast.Statement {
 	expr := p.parseExpr(LOWEST)
+	if p.peekToken.IsLF() {
+		p.next()
+		p.skipLF()
+	}
 	return ast.ExprStatement{
 		Expression: expr,
 	}

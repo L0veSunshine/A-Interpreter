@@ -64,21 +64,21 @@ func (c *Compiler) Debug() {
 	fmt.Print(sb.String())
 }
 
-func (c *Compiler) Compile(node ast.Node) {
+func (c *Compiler) compile(node ast.Node) {
 	switch node := node.(type) {
 	case ast.Program:
 		for _, s := range node.Statements {
-			c.Compile(s)
+			c.compile(s)
 		}
 	case *ast.BlockStatement:
 		for _, s := range node.Statements {
-			c.Compile(s)
+			c.compile(s)
 		}
 	case ast.ExprStatement:
-		c.Compile(node.Expression)
+		c.compile(node.Expression)
 		c.emit(code.OpPop)
 	case ast.FuncStatement:
-		c.Compile(node.Expression)
+		c.compile(node.Expression)
 	case ast.IntNode:
 		numObj := object.Int{Value: node.Value}
 		consIdx := c.addConstant(numObj)
@@ -99,7 +99,7 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.emit(code.OpFalse)
 		}
 	case ast.PrefixExpr:
-		c.Compile(node.Right)
+		c.compile(node.Right)
 		switch node.Op.Type {
 		case tokens.Plus:
 			c.emit(code.OpPlus)
@@ -112,8 +112,8 @@ func (c *Compiler) Compile(node ast.Node) {
 		}
 	case ast.InfixExpr:
 		if node.Op.Type == tokens.LT || node.Op.Type == tokens.LTEq {
-			c.Compile(node.Right)
-			c.Compile(node.Left)
+			c.compile(node.Right)
+			c.compile(node.Left)
 			switch node.Op.Type {
 			case tokens.LT:
 				c.emit(code.OpGT)
@@ -124,8 +124,8 @@ func (c *Compiler) Compile(node ast.Node) {
 			}
 			return
 		}
-		c.Compile(node.Left)
-		c.Compile(node.Right)
+		c.compile(node.Left)
+		c.compile(node.Right)
 		switch node.Op.Type {
 		case tokens.Plus:
 			c.emit(code.OpAdd)
@@ -155,9 +155,9 @@ func (c *Compiler) Compile(node ast.Node) {
 			c.NewErrorF("unknown operator %s", node.Op.Str())
 		}
 	case ast.IfExpression:
-		c.Compile(node.Condition)
+		c.compile(node.Condition)
 		jumpNotTruePos := c.emit(code.OpJumpNotTrue, 9999)
-		c.Compile(node.Consequence)
+		c.compile(node.Consequence)
 		if c.isLastIns(code.OpPop) {
 			c.removeLastOp()
 		}
@@ -167,7 +167,7 @@ func (c *Compiler) Compile(node ast.Node) {
 		if node.Alternative == nil {
 			c.emit(code.OpNull)
 		} else {
-			c.Compile(node.Alternative)
+			c.compile(node.Alternative)
 			if c.isLastIns(code.OpPop) {
 				c.removeLastOp()
 			}
@@ -176,9 +176,9 @@ func (c *Compiler) Compile(node ast.Node) {
 		c.changeOperand(jumpPos, afterAlterPos)
 	case ast.ForExpression:
 		forStatPos := len(c.curInstruction())
-		c.Compile(node.Condition)
+		c.compile(node.Condition)
 		breakPos := c.emit(code.OpJumpNotTrue, 9999)
-		c.Compile(node.Loop)
+		c.compile(node.Loop)
 		if c.isLastIns(code.OpPop) {
 			c.removeLastOp()
 		}
@@ -186,7 +186,7 @@ func (c *Compiler) Compile(node ast.Node) {
 		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
 	case ast.VarStatement:
-		c.Compile(node.Value)
+		c.compile(node.Value)
 		symbol := c.symbolTable.Define(node.Indent.Value)
 		c.setScope(symbol)
 	case ast.IdentNode:
@@ -201,7 +201,7 @@ func (c *Compiler) Compile(node ast.Node) {
 		}
 		c.getScope(symbol)
 	case ast.AssignStatement:
-		c.Compile(node.Statement)
+		c.compile(node.Statement)
 		symbol, ok := c.symbolTable.Resolve(node.Identifier.Value)
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
@@ -214,7 +214,7 @@ func (c *Compiler) Compile(node ast.Node) {
 		for _, p := range node.Parameters {
 			c.symbolTable.Define(p.Value)
 		}
-		c.Compile(node.FuncBody)
+		c.compile(node.FuncBody)
 		if c.isLastIns(code.OpPop) {
 			c.replaceLast(code.OpReturnVal)
 		}
@@ -236,16 +236,34 @@ func (c *Compiler) Compile(node ast.Node) {
 		}
 		//c.emit(code.OpConstant, c.addConstant(compiledFn))
 	case ast.ReturnStatement:
-		c.Compile(node.ReturnVal)
+		c.compile(node.ReturnVal)
 		c.emit(code.OpReturnVal)
 	case ast.FuncCallExpr:
-		c.Compile(node.Function)
+		c.compile(node.Function)
 		for _, arg := range node.Arguments {
-			c.Compile(arg)
+			c.compile(arg)
 		}
 		c.emit(code.OpCallFunc, len(node.Arguments))
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
+	}
+}
+func (c *Compiler) Compile(node ast.Node) {
+	c.compile(node)
+	c.handleNoCall()
+}
+
+func (c *Compiler) handleNoCall() {
+	if c.functions.funcNum == 0 {
+		return
+	}
+	var s = false
+	for _, fn := range c.functions.store {
+		s = s || fn.Called
+	}
+	if !s && len(c.curInstruction()) == 0 {
+		c.emit(code.OpNull)
+		c.emit(code.OpPop)
 	}
 }
 
