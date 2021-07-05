@@ -30,5 +30,5 @@ return a+1}else{
 return abv !=  !  >=  <= ==}`
 	l := NewLexer(s)
 	fmt.Println(l.Array())
-	fmt.Println(l.errs)
+	fmt.Println(l.Errs())
 }

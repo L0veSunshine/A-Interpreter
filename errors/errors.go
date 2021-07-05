@@ -1,4 +1,4 @@
-package main
+package errors
 
 import (
 	"errors"
@@ -32,6 +32,6 @@ func (e *Errors) HasError() bool {
 	return len(e.errs) != 0
 }
 
-func (e *Errors) Errors() []error {
+func (e *Errors) Errs() []error {
 	return e.errs
 }

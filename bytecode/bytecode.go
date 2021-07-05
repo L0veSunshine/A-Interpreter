@@ -59,7 +59,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 		if obj.Type() == object.CompiledFuncObj {
 			var argSb strings.Builder
 			cf := obj.(object.CompiledFunc)
-			argSb.WriteString("=> Func Def\n")
+			argSb.WriteString("=> Func {" + cf.FnName + "}\n")
 			argSb.WriteString(b.InsToString(cf.Instructions, 8))
 			return argSb.String()
 		} else {

@@ -1,17 +1,18 @@
 package main
 
 import (
+	"Interpreter/compiler"
 	vm2 "Interpreter/vm"
 	"fmt"
 	"sync"
 )
 
-var c *Compiler
+var c *compiler.Compiler
 var ones sync.Once
 
-func singleComp() *Compiler {
+func singleComp() *compiler.Compiler {
 	ones.Do(func() {
-		c = NewCompiler()
+		c = compiler.NewCompiler()
 	})
 	return c
 }
@@ -21,7 +22,7 @@ func run(code string) string {
 	parser := NewParser(lex)
 	ast := parser.Parse()
 	if parser.HasError() {
-		return fmt.Sprint(parser.errs)
+		return fmt.Sprint(parser.Errors.Errs())
 	}
 	comp := singleComp()
 	comp.Compile(ast)

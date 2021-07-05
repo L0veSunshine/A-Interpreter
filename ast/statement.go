@@ -103,6 +103,22 @@ func (es ExprStatement) Str() string {
 	return ""
 }
 
+type FuncStatement struct {
+	Expression Expression
+}
+
+func (fs FuncStatement) StatementNode() {}
+func (fs FuncStatement) TokenLiteral() string {
+	return fs.Expression.TokenLiteral()
+}
+
+func (fs FuncStatement) Str() string {
+	if fs.Expression != nil {
+		return fs.Expression.Str()
+	}
+	return ""
+}
+
 type BlockStatement struct {
 	Token      tokens.Token
 	Statements []Statement

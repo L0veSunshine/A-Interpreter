@@ -90,9 +90,11 @@ func (b Builtin) Inspect() string {
 }
 
 type CompiledFunc struct {
+	FnName        string
 	Instructions  code.Instructions
 	LocalsNum     int
 	ParametersNum int
+	Called        bool
 }
 
 func (cf CompiledFunc) Type() ObjType {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"Interpreter/ast"
+	"Interpreter/errors"
 	"Interpreter/tokens"
 	"strconv"
 )
@@ -10,7 +11,7 @@ type Parser struct {
 	lex *Lexer
 	curToken,
 	peekToken *tokens.Token
-	*Errors
+	*errors.Errors
 	prefixFns map[string]prefixParseFn
 	infixFns  map[string]infixParseFn
 }
@@ -26,7 +27,7 @@ func (p *Parser) regInfixFn(token string, fn infixParseFn) {
 func NewParser(lex *Lexer) *Parser {
 	p := &Parser{
 		lex:       lex,
-		Errors:    NewErr(),
+		Errors:    errors.NewErr(),
 		prefixFns: map[string]prefixParseFn{},
 		infixFns:  map[string]infixParseFn{},
 	}
@@ -129,6 +130,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseExprStatement()
 	case tokens.Return:
 		return p.parseReturnStatement()
+	case tokens.Func:
+		return p.parseFuncStatement()
 	case tokens.LF:
 		p.next()
 		return p.parseStatement()
@@ -195,6 +198,11 @@ func (p *Parser) parseExprStatement() ast.Statement {
 	return ast.ExprStatement{
 		Expression: expr,
 	}
+}
+
+func (p *Parser) parseFuncStatement() ast.FuncStatement {
+	expr := p.parseExpr(LOWEST)
+	return ast.FuncStatement{Expression: expr}
 }
 
 func (p *Parser) parseExpr(precedence int) ast.Expression {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Interpreter/compiler"
 	"Interpreter/object"
 	vm2 "Interpreter/vm"
 	"fmt"
@@ -110,9 +111,9 @@ func TestParser_Parse(t *testing.T) {
 	if !p.HasError() {
 		fmt.Println(ast.Str())
 	} else {
-		fmt.Println(p.errs, len(p.errs))
+		fmt.Println(p.Errs(), len(p.Errs()))
 	}
-	c := NewCompiler()
+	c := compiler.NewCompiler()
 	c.Compile(ast)
 	c.Debug()
 	vm := vm2.NewVM()
@@ -134,7 +135,7 @@ func BenchmarkExec(b *testing.B) {
 	//} else {
 	//	fmt.Println(p.errs, len(p.errs))
 	//}
-	c := NewCompiler()
+	c := compiler.NewCompiler()
 	c.Compile(ast)
 	//c.ByteCode()
 	vm := vm2.NewVM()
@@ -198,30 +199,34 @@ func BenchmarkName1(b *testing.B) {
 	fmt.Println(obj.Inspect())
 }
 
-var ori = `
-var x=2
-var fn=def add(a,b){var c=1
-c=c-a-b
+var ori = `def add(a,b){
 var z=100
+var c=1
+c=c-a-b
+z=z-1
 return c}
+var x=100
 var a=1
 var b=1
 var c=1
-var r=fn(2,3)
-x=x+1
+var r=add(2,3)
+x=a+1
 x=x*r
 x`
-var ori1 = `var x=10
-var y=3
-x=x-y
-x`
+
+var ori1 = `def add(a,b){
+var z=100
+var c=1
+c=c-a-b
+z=z-1
+return z}`
 
 func TestParseParams(t *testing.T) {
 	lex := NewLexer(ori)
 	p := NewParser(lex)
 	ast := p.Parse()
 	fmt.Println(ast.Str())
-	c := NewCompiler()
+	c := compiler.NewCompiler()
 	c.Compile(ast)
 	c.Debug()
 	vm := vm2.NewVM()

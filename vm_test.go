@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Interpreter/compiler"
 	vm2 "Interpreter/vm"
 	"fmt"
 	"testing"
@@ -12,7 +13,7 @@ func TestAll(t *testing.T) {
 	l := NewLexer(exp)
 	p := NewParser(l)
 	nodes := p.Parse()
-	comp := NewCompiler()
+	comp := compiler.NewCompiler()
 	comp.Compile(nodes)
 	vm := vm2.NewVM()
 	fmt.Println(comp.ByteCode().Instruction, comp.ByteCode().Constants)

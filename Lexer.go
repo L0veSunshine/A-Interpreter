@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Interpreter/errors"
 	"Interpreter/tokens"
 	"Interpreter/utils"
 )
@@ -10,13 +11,13 @@ type Lexer struct {
 	pos int
 	loc *tokens.Locate
 	cur *utils.Char
-	*Errors
+	*errors.Errors
 }
 
 func NewLexer(text string) *Lexer {
 	l := &Lexer{
 		rs:     []rune(text),
-		Errors: NewErr(),
+		Errors: errors.NewErr(),
 		loc: &tokens.Locate{
 			Column: 1,
 			Line:   1,

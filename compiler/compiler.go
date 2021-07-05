@@ -1,9 +1,10 @@
-package main
+package compiler
 
 import (
 	"Interpreter/ast"
 	"Interpreter/bytecode"
 	"Interpreter/code"
+	"Interpreter/errors"
 	"Interpreter/object"
 	"Interpreter/tokens"
 	"fmt"
@@ -13,11 +14,12 @@ import (
 )
 
 type Compiler struct {
-	*Errors
+	*errors.Errors
 
 	debug       bool
 	constants   []object.Object
 	symbolTable *SymbolTable
+	functions   *FuncTable
 	scope       []CompilationScope
 	scopeIdx    int
 }
@@ -34,10 +36,11 @@ func NewScope() CompilationScope {
 func NewCompiler() *Compiler {
 	rootScope := NewScope()
 	return &Compiler{
-		Errors:      NewErr(),
+		Errors:      errors.NewErr(),
 		debug:       false,
 		constants:   []object.Object{},
 		symbolTable: NewSymbolTable(),
+		functions:   NewFuncTable(),
 		scope:       []CompilationScope{rootScope},
 		scopeIdx:    0,
 	}
@@ -53,8 +56,8 @@ func (c *Compiler) Debug() {
 		sb.WriteString(ls)
 		sb.WriteString(c.ByteCode().String() + "\n")
 		sb.WriteString(ls)
-		if len(c.errs) != 0 {
-			fmt.Println("ERROR:", c.errs)
+		if c.HasError() {
+			fmt.Println("ERROR:", c.Errs())
 			return
 		}
 	}
@@ -74,6 +77,8 @@ func (c *Compiler) Compile(node ast.Node) {
 	case ast.ExprStatement:
 		c.Compile(node.Expression)
 		c.emit(code.OpPop)
+	case ast.FuncStatement:
+		c.Compile(node.Expression)
 	case ast.IntNode:
 		numObj := object.Int{Value: node.Value}
 		consIdx := c.addConstant(numObj)
@@ -187,7 +192,12 @@ func (c *Compiler) Compile(node ast.Node) {
 	case ast.IdentNode:
 		symbol, ok := c.symbolTable.Resolve(node.Value)
 		if !ok {
-			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
+			var compiledFn object.CompiledFunc
+			compiledFn, ok = c.functions.find(node.Value)
+			if !ok {
+				c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
+			}
+			c.emit(code.OpConstant, c.addConstant(compiledFn))
 		}
 		c.getScope(symbol)
 	case ast.AssignStatement:
@@ -215,11 +225,16 @@ func (c *Compiler) Compile(node ast.Node) {
 		instructions := c.leaveScope()
 
 		compiledFn := object.CompiledFunc{
+			FnName:        node.Name,
 			Instructions:  instructions,
 			LocalsNum:     numLocals,
 			ParametersNum: len(node.Parameters),
 		}
-		c.emit(code.OpConstant, c.addConstant(compiledFn))
+		err := c.functions.addFunc(compiledFn)
+		if err != nil {
+			c.Push(err)
+		}
+		//c.emit(code.OpConstant, c.addConstant(compiledFn))
 	case ast.ReturnStatement:
 		c.Compile(node.ReturnVal)
 		c.emit(code.OpReturnVal)
