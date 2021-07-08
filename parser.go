@@ -124,8 +124,11 @@ func (p *Parser) parseStatement() ast.Statement {
 	case tokens.Var:
 		return p.parseVarStatement()
 	case tokens.Ident:
-		if p.peekToken.Type == tokens.Assign {
+		switch {
+		case p.peekToken.Type == tokens.Assign:
 			return p.parseAssignStatement()
+		case p.peekToken.Type == tokens.LParen:
+			return p.parseCallStatement()
 		}
 		return p.parseExprStatement()
 	case tokens.Return:
@@ -142,6 +145,7 @@ func (p *Parser) parseStatement() ast.Statement {
 		}
 		return res
 	}
+
 }
 
 func (p *Parser) parseVarStatement() ast.Statement {
@@ -193,15 +197,22 @@ func (p *Parser) parseAssignStatement() ast.Statement {
 	}
 }
 
+func (p *Parser) parseCallStatement() ast.Statement {
+	fn := p.parseIdentifier()
+	p.next()
+	token := p.curToken
+	args := p.parseCallArgs()
+	exp := ast.FuncCallExpr{Token: *token, Function: fn, Arguments: args}
+	return ast.ExprStatement{Expression: exp}
+}
+
 func (p *Parser) parseExprStatement() ast.Statement {
 	expr := p.parseExpr(LOWEST)
 	if p.peekToken.IsLF() {
 		p.next()
 		p.skipLF()
 	}
-	return ast.ExprStatement{
-		Expression: expr,
-	}
+	return ast.ExprStatement{Expression: expr}
 }
 
 func (p *Parser) parseFuncStatement() ast.FuncStatement {
@@ -390,7 +401,7 @@ func (p *Parser) parseForExpr() ast.Expression {
 func (p *Parser) parseFuncParams() []ast.IdentNode {
 	var params []ast.IdentNode
 	p.eat(tokens.LParen)
-	if p.peekToken.Type == tokens.RParen {
+	if p.curToken.Type == tokens.RParen {
 		p.next()
 		return params
 	}
@@ -431,13 +442,13 @@ func (p *Parser) parseFuncDef() ast.Expression {
 func (p *Parser) parseCallArgs() []ast.Expression {
 	var args []ast.Expression
 	p.eat(tokens.LParen)
-	if p.peekToken.Type == tokens.RParen {
+	if p.curToken.Type == tokens.RParen {
 		p.eat(tokens.RParen)
 		return args
 	}
 	arg := p.parseExpr(LOWEST)
-	p.next()
 	args = append(args, arg)
+	p.next()
 	for p.curToken.Type == tokens.Comma {
 		p.next()
 		arg := p.parseExpr(LOWEST)

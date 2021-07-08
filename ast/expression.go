@@ -170,7 +170,7 @@ func (fd FuncDef) Str() string {
 		params = append(params, p.Str())
 	}
 	sb.WriteString(fmt.Sprintf("Func: %s(", fd.Name))
-	sb.WriteString(strings.Join(params, ",") + ") {")
+	sb.WriteString(strings.Join(params, ",") + ")\n{")
 	sb.WriteString(fd.FuncBody.Str() + "}")
 	return sb.String()
 }

@@ -5,6 +5,7 @@ import (
 	"Interpreter/object"
 	vm2 "Interpreter/vm"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -102,10 +103,63 @@ i`
 
 var s14 = `true ==(1<=-1)`
 
+var s15 = `
+def sqrt(t) {
+var i=10/2
+var const=0
+var tmp=9999
+for(tmp>0.000000001){
+i=i-(i**2-t)/(2*i)
+const=const+1
+if(i**2-t>0){
+tmp=i**2-t}else{
+tmp=-(i**2-t)}
+}
+return i}
+var a=0
+var x=0
+for (a<1000){
+sqrt(sqrt(4)+sqrt(sqrt(1)+sqrt(4)))
+a
+a=a+1}
+x
+`
+
+var s16 = `
+var idx=0
+var s=""
+for(idx<10){
+s=s+"你好"
+idx=idx+1
+}
+s`
+
+var s17 = `
+def sqrt(t) {
+var i=10/2
+var const=0
+var tmp=9999
+for(tmp>0.000000001){
+i=i-(i**2-t)/(2*i)
+const=const+1
+if(i**2-t>0){
+tmp=i**2-t}else{
+tmp=-(i**2-t)}
+}
+return i}
+var a=0
+var res=0
+for (a<1000){
+res=sqrt(sqrt(4)+sqrt(9))
+a=a+1}
+if(res>=2){
+res=res+10}
+res`
+
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s12)
-	fmt.Println(lex.Array())
+	lex := NewLexer(s17)
+	//fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -116,18 +170,20 @@ func TestParser_Parse(t *testing.T) {
 	c := compiler.NewCompiler()
 	c.Compile(ast)
 	c.Debug()
+	st1 := time.Now()
 	vm := vm2.NewVM()
 	err := vm.Run(c.ByteCode())
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(time.Since(st).Seconds())
+	fmt.Println("Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
+	fmt.Println("Run Time:" + strconv.FormatFloat(time.Since(st1).Seconds(), 'f', -1, 32))
 	fmt.Println(vm.LastPop().Inspect())
 }
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := NewLexer(s12)
+	lex := NewLexer(s16)
 	p := NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {
@@ -215,12 +271,23 @@ x=x*r
 x`
 
 var ori1 = `
-def add(a,b){
-return 2*a+b}
-`
+def sqrt(t) {
+var i=10/2
+var const=0
+var tmp=9999
+for(tmp>0.000000001){
+i=i-(i**2-t)/(2*i)
+const=const+1
+if(i**2-t>0){
+tmp=i**2-t}else{
+tmp=-(i**2-t)}
+}
+return i}
+var r=sqrt(sqrt(4)+sqrt(9))
+r`
 
 func TestParseParams(t *testing.T) {
-	lex := NewLexer(ori)
+	lex := NewLexer(ori1)
 	p := NewParser(lex)
 	ast := p.Parse()
 	fmt.Println(ast.Str())

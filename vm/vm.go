@@ -407,7 +407,7 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 	case code.OpPow:
 		res = math.Pow(leftVal, rightVal)
 	default:
-		return fmt.Errorf("unknown integer operator: %d", op)
+		return fmt.Errorf("unknown operator %d for integer", op)
 	}
 	return vm.replace(object.Float{Value: res})
 }
@@ -418,7 +418,7 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 	if op == code.OpAdd {
 		return vm.replace(object.String{Value: leftVal + rightVal})
 	} else {
-		return fmt.Errorf("unknown integer operator: %d", op)
+		return fmt.Errorf("unknown operator %d for str", op)
 	}
 }
 
