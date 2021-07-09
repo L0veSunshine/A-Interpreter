@@ -130,9 +130,9 @@ var idx=0
 var s=""
 for(idx<10){
 s=s+"你好"
+print(s)
 idx=idx+1
-}
-s`
+}`
 
 var s17 = `
 def sqrt(t) {
@@ -149,17 +149,28 @@ tmp=-(i**2-t)}
 return i}
 var a=0
 var res=0
-for (a<1000){
+for (a<2){
 res=sqrt(sqrt(4)+sqrt(9))
 a=a+1}
 if(res>=2){
 res=res+10}
-res`
+print("你好")
+print(res)`
+
+var s18 = `
+var start=10
+def fib(x){
+if(x<=1){
+return x}else{
+return fib(x-1)+fib(x-2)}
+}
+var res=fib(30)
+print(res)`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s17)
-	//fmt.Println(lex.Array())
+	lex := NewLexer(s18)
+	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -183,7 +194,7 @@ func TestParser_Parse(t *testing.T) {
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := NewLexer(s16)
+	lex := NewLexer(s18)
 	p := NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {
@@ -202,7 +213,7 @@ func BenchmarkExec(b *testing.B) {
 			fmt.Println(err)
 		}
 	}
-	fmt.Println(vm.LastPop().Inspect())
+	//fmt.Println(vm.LastPop().Inspect())
 }
 
 func BenchmarkParser_Parse(b *testing.B) {
@@ -298,5 +309,5 @@ func TestParseParams(t *testing.T) {
 	if err := vm.Run(c.ByteCode()); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(vm.LastPop().Inspect())
+	//fmt.Println(vm.LastPop().Inspect())
 }

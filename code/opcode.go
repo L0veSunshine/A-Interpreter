@@ -47,4 +47,5 @@ const (
 	OpGetBuiltin
 
 	OpCallFunc
+	OpClosure
 )

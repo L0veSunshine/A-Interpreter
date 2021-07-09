@@ -18,11 +18,13 @@ const (
 var (
 	StackOverErr = fmt.Errorf("stack overflow")
 	StackIdxErr  = fmt.Errorf("invalid index")
+	callee       object.Object
 	NullObj      = object.Null{}
 )
 
 type VM struct {
 	constants []object.Object
+	functions []object.CompiledFunc
 
 	stack    [StackSize]object.Object
 	globals  [GlobalSize]object.Object
@@ -34,10 +36,9 @@ type VM struct {
 func NewVM() *VM {
 	frames := make([]*Frame, MaxFrame)
 	return &VM{
-		constants: nil,
-		sp:        0, //stack pointer
-		frames:    frames,
-		frameIdx:  1,
+		sp:       0, //stack pointer
+		frames:   frames,
+		frameIdx: 1,
 	}
 }
 
@@ -88,9 +89,10 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	var op code.Opcode
 
 	mainFn := object.CompiledFunc{Instructions: bytecode.Instruction}
-	mainFrame := NewFrame(&mainFn, 0)
+	mainFrame := NewFrame(mainFn, 0)
 	vm.frames[0] = mainFrame
 	vm.constants = bytecode.Constants
+	vm.functions = bytecode.Functions
 
 	for vm.currentFrame().ip < len(vm.currentFrame().Instructions())-1 {
 		vm.currentFrame().ip++
@@ -227,6 +229,13 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
+		case code.OpClosure:
+			fnIdx := code.ReadUint8(ins[ip+1:])
+			vm.currentFrame().ip += 1
+			err := vm.push(vm.functions[fnIdx])
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -238,10 +247,10 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	switch {
 	case right.Type() == object.IntObj && left.Type() == object.IntObj:
 		return vm.executeBinOpInt(op, left, right)
+	case right.Type() == object.StringObj || left.Type() == object.StringObj:
+		return vm.executeBinOpStr(op, left, right)
 	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
 		return vm.executeBinOpFloat(op, left, right)
-	case right.Type() == object.StringObj && left.Type() == object.StringObj:
-		return vm.executeBinOpStr(op, left, right)
 	}
 	return fmt.Errorf("unsupported types for binary operation: %s %s",
 		left.Type(), right.Type())
@@ -413,8 +422,9 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 }
 
 func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.String).Value
-	rightVal := right.(object.String).Value
+	var leftVal, rightVal string
+	leftVal = left.Inspect()
+	rightVal = right.Inspect()
 	if op == code.OpAdd {
 		return vm.replace(object.String{Value: leftVal + rightVal})
 	} else {
@@ -472,16 +482,18 @@ func (vm *VM) popFrame() *Frame {
 }
 
 func (vm *VM) executeCall(numArgs int) error {
-	callee := vm.stack[vm.sp-1-numArgs]
+	callee = vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
-		return vm.callFunc(&callee, numArgs)
+		return vm.callFunc(callee, numArgs)
+	case object.Builtin:
+		return vm.callBuiltin(callee, numArgs)
 	default:
 		return fmt.Errorf("calling non-function and non-built-in")
 	}
 }
 
-func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
+func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
@@ -492,10 +504,12 @@ func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
 	return nil
 }
 
-func (vm VM) S() [2048]object.Object {
-	return vm.stack
-}
-func (vm VM) Sp() int {
-	return vm.sp
-
+func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
+	args := vm.stack[vm.sp-argNums : vm.sp]
+	result := builtin.Fn(args...)
+	vm.sp = vm.sp - argNums - 1
+	if result != nil {
+		return vm.push(result)
+	}
+	return vm.push(NullObj)
 }

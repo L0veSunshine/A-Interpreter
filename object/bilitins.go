@@ -4,13 +4,13 @@ import "fmt"
 
 type BuiltinFn struct {
 	Name    string
-	Builtin *Builtin
+	Builtin Builtin
 }
 
 var BuiltinFns = []BuiltinFn{
 	{
 		"print",
-		&Builtin{Fn: func(args ...Object) Object {
+		Builtin{Fn: func(args ...Object) Object {
 			for _, arg := range args {
 				fmt.Println(arg.Inspect())
 			}
@@ -20,11 +20,11 @@ var BuiltinFns = []BuiltinFn{
 	},
 }
 
-func GetBuiltinFn(name string) *Builtin {
+func GetBuiltinFn(name string) Builtin {
 	for _, f := range BuiltinFns {
 		if f.Name == name {
 			return f.Builtin
 		}
 	}
-	return nil
+	return Builtin{}
 }

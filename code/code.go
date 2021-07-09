@@ -45,6 +45,7 @@ var Definitions = map[Opcode]Definition{
 	OpSetLocal:     {"OpSetLocal", []int{2}},
 	OpGetBuiltin:   {"OpGetBuiltin", []int{1}},
 	OpCallFunc:     {"OpCallFunc", []int{1}},
+	OpClosure:      {"OpClosure", []int{1}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

@@ -11,6 +11,7 @@ import (
 type Bytecode struct {
 	Instruction code.Instructions
 	Constants   []object.Object
+	Functions   []object.CompiledFunc
 }
 
 func (b *Bytecode) InsToString(ins code.Instructions, indent int) string {
@@ -56,17 +57,21 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 			fmt.Println(e)
 		}
 		obj := b.Constants[idx]
-		if obj.Type() == object.CompiledFuncObj {
-			var argSb strings.Builder
-			cf := obj.(object.CompiledFunc)
-			argSb.WriteString("=> Func {" + cf.FnName + "}\n")
-			argSb.WriteString(b.InsToString(cf.Instructions, 8))
-			return argSb.String()
-		} else {
-			args += " ==> " + string(obj.Type()) + " " + obj.Inspect()
-		}
+		args += " ==> " + string(obj.Type()) + " " + obj.Inspect()
 	case "OpUpdate":
 		args = " => var " + args
+	case "OpClosure":
+		idx, e := strconv.Atoi(args)
+		if e != nil {
+			fmt.Println(e)
+		}
+		fn := b.Functions[idx]
+		var argSb strings.Builder
+		argSb.WriteString(args)
+		argSb.WriteString(" => Func {" + fn.FnName + "}")
+		//argSb.WriteString("\n" + b.InsToString(fn.Instructions, 8))
+		return argSb.String()
 	}
+
 	return args
 }

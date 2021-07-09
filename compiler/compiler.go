@@ -35,11 +35,17 @@ func NewScope() CompilationScope {
 
 func NewCompiler() *Compiler {
 	rootScope := NewScope()
+
+	st := NewSymbolTable()
+	for k, v := range object.BuiltinFns {
+		st.DefineBuiltin(k, v.Name)
+	}
+
 	return &Compiler{
 		Errors:      errors.NewErr(),
 		debug:       false,
 		constants:   []object.Object{},
-		symbolTable: NewSymbolTable(),
+		symbolTable: st,
 		functions:   NewFuncTable(),
 		scope:       []CompilationScope{rootScope},
 		scopeIdx:    0,
@@ -192,12 +198,11 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.IdentNode:
 		symbol, ok := c.symbolTable.Resolve(node.Value)
 		if !ok {
-			var compiledFn object.CompiledFunc
-			compiledFn, ok = c.functions.find(node.Value)
-			if !ok {
+			fnIdx := c.functions.find(node.Value)
+			if fnIdx == -1 {
 				c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
 			}
-			c.emit(code.OpConstant, c.addConstant(compiledFn))
+			c.emit(code.OpClosure, fnIdx)
 		}
 		c.getScope(symbol)
 	case ast.AssignStatement:
@@ -211,6 +216,8 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.FuncDef:
 		c.enterScope()
 
+		paramsCount := len(node.Parameters)
+		fnIdx := c.functions.regName(node.Name, paramsCount)
 		for _, p := range node.Parameters {
 			c.symbolTable.Define(p.Value)
 		}
@@ -228,13 +235,12 @@ func (c *Compiler) compile(node ast.Node) {
 			FnName:        node.Name,
 			Instructions:  instructions,
 			LocalsNum:     numLocals,
-			ParametersNum: len(node.Parameters),
+			ParametersNum: paramsCount,
 		}
-		err := c.functions.addFunc(compiledFn)
+		err := c.functions.addFunc(fnIdx, compiledFn)
 		if err != nil {
 			c.Push(err)
 		}
-		//c.emit(code.OpConstant, c.addConstant(compiledFn))
 	case ast.ReturnStatement:
 		c.compile(node.ReturnVal)
 		c.emit(code.OpReturnVal)
@@ -294,6 +300,7 @@ func (c *Compiler) ByteCode() *bytecode.Bytecode {
 	byCode := &bytecode.Bytecode{
 		Instruction: c.curInstruction(),
 		Constants:   c.constants,
+		Functions:   c.functions.store,
 	}
 	return byCode
 }
