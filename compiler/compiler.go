@@ -265,7 +265,7 @@ func (c *Compiler) handleNoCall() {
 	}
 	var s = false
 	for _, fn := range c.functions.store {
-		s = s || fn.Called
+		s = s || fn.(object.CompiledFunc).Called
 	}
 	if !s && len(c.curInstruction()) == 0 {
 		c.emit(code.OpNull)

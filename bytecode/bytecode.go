@@ -11,7 +11,7 @@ import (
 type Bytecode struct {
 	Instruction code.Instructions
 	Constants   []object.Object
-	Functions   []object.CompiledFunc
+	Functions   []object.Object
 }
 
 func (b *Bytecode) InsToString(ins code.Instructions, indent int) string {
@@ -65,7 +65,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 		if e != nil {
 			fmt.Println(e)
 		}
-		fn := b.Functions[idx]
+		fn := b.Functions[idx].(object.CompiledFunc)
 		var argSb strings.Builder
 		argSb.WriteString(args)
 		argSb.WriteString(" => Func {" + fn.FnName + "}")

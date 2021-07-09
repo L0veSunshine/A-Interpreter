@@ -6,13 +6,13 @@ import (
 )
 
 type FuncTable struct {
-	store   []object.CompiledFunc
+	store   []object.Object
 	funcNum int
 }
 
 func NewFuncTable() *FuncTable {
 	return &FuncTable{
-		store:   make([]object.CompiledFunc, 0, 10),
+		store:   make([]object.Object, 0, 10),
 		funcNum: 0,
 	}
 }
@@ -38,8 +38,10 @@ func (ft *FuncTable) addFunc(idx int, CompiledFn object.CompiledFunc) error {
 
 func (ft *FuncTable) find(funcName string) int {
 	init := -1
+	var fnObj object.CompiledFunc
 	for idx, fn := range ft.store {
-		if fn.FnName == funcName {
+		fnObj = fn.(object.CompiledFunc)
+		if fnObj.FnName == funcName {
 			init = idx
 			break
 		}

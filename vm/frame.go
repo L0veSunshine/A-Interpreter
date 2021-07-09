@@ -11,8 +11,8 @@ type Frame struct {
 	basePoint int
 }
 
-func NewFrame(fn object.CompiledFunc, basePoint int) *Frame {
-	return &Frame{
+func NewFrame(fn object.CompiledFunc, basePoint int) Frame {
+	return Frame{
 		fn:        fn,
 		ip:        -1,
 		basePoint: basePoint,

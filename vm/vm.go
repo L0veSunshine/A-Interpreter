@@ -18,23 +18,22 @@ const (
 var (
 	StackOverErr = fmt.Errorf("stack overflow")
 	StackIdxErr  = fmt.Errorf("invalid index")
-	callee       object.Object
 	NullObj      = object.Null{}
 )
 
 type VM struct {
 	constants []object.Object
-	functions []object.CompiledFunc
+	functions []object.Object
 
 	stack    [StackSize]object.Object
 	globals  [GlobalSize]object.Object
 	sp       int
-	frames   []*Frame
+	frames   []Frame
 	frameIdx int
 }
 
 func NewVM() *VM {
-	frames := make([]*Frame, MaxFrame)
+	frames := make([]Frame, MaxFrame)
 	return &VM{
 		sp:       0, //stack pointer
 		frames:   frames,
@@ -298,6 +297,7 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 	var leftVal float64
 	var rightVal float64
+	var res bool
 	switch left.(type) {
 	case object.Int:
 		leftVal = float64(left.(object.Int).Value)
@@ -310,7 +310,6 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 	case object.Float:
 		rightVal = right.(object.Float).Value
 	}
-	var res bool
 	switch op {
 	case code.OpEqual:
 		res = leftVal == rightVal
@@ -468,18 +467,20 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 }
 
 func (vm *VM) currentFrame() *Frame {
-	return vm.frames[vm.frameIdx-1]
+	return &vm.frames[vm.frameIdx-1]
 }
 
-func (vm *VM) pushFrame(frame *Frame) {
+func (vm *VM) pushFrame(frame Frame) {
 	vm.frames[vm.frameIdx] = frame
 	vm.frameIdx++
 }
 
-func (vm *VM) popFrame() *Frame {
+func (vm *VM) popFrame() Frame {
 	vm.frameIdx--
 	return vm.frames[vm.frameIdx]
 }
+
+var callee object.Object
 
 func (vm *VM) executeCall(numArgs int) error {
 	callee = vm.stack[vm.sp-1-numArgs]
@@ -493,19 +494,23 @@ func (vm *VM) executeCall(numArgs int) error {
 	}
 }
 
+var frame Frame
+
 func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
-	frame := NewFrame(fn, vm.sp-numArgs)
+	frame = NewFrame(fn, vm.sp-numArgs)
 	vm.pushFrame(frame)
 	vm.sp = frame.basePoint + fn.LocalsNum
 	return nil
 }
 
+var args []object.Object
+
 func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
-	args := vm.stack[vm.sp-argNums : vm.sp]
+	args = vm.stack[vm.sp-argNums : vm.sp]
 	result := builtin.Fn(args...)
 	vm.sp = vm.sp - argNums - 1
 	if result != nil {
