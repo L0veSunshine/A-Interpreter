@@ -4,11 +4,11 @@ const (
 	NullObj  = "NULL"
 	ErrorObj = "ERROR"
 
-	IntObj     = "INT"
-	FloatObj   = "FLOAT"
-	BooleanObj = "BOOLEAN"
-	StringObj  = "STRING"
+	IntObj     = "Int"
+	FloatObj   = "Float"
+	BooleanObj = "Boolean"
+	StringObj  = "String"
 
-	BuiltinObj      = "BUILTIN"
-	CompiledFuncObj = "COMPILED"
+	BuiltinObj      = "Builtin"
+	CompiledFuncObj = "Compiled"
 )

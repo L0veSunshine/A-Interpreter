@@ -8,42 +8,44 @@ import (
 	"strings"
 )
 
+var RecursionLimit = 30
+
 type Bytecode struct {
 	Instruction code.Instructions
 	Constants   []object.Object
 	Functions   []object.Object
+	Symbols     *SymbolTable
 }
 
-func (b *Bytecode) InsToString(ins code.Instructions, indent int) string {
+func (b *Bytecode) InsToString(ins code.Instructions, start, indent int) string {
 	var sb strings.Builder
 	for i := 0; i < len(ins); i++ {
 		opcode := code.Opcode(ins[i])
 		def, ok := code.Definitions[opcode]
 		if ok {
 			operand, offset := code.ReadOperand(def, ins[i+1:])
-			format := "%" + strconv.Itoa(indent) + "d "
+			format := strings.Repeat(" ", start) + " %-" + strconv.Itoa(indent) + "d %-18s %s"
 			args := b.getArgs(def, operand)
-			order := fmt.Sprintf(format, i)
-			sb.WriteString(order + def.Name + " " + args)
+			sb.WriteString(fmt.Sprintf(format, i, def.Name, args))
 			i += offset
 			if i != len(ins)-1 {
 				sb.WriteString("\n")
 			}
-		} else {
-			continue
 		}
 	}
 	return sb.String()
 }
 
 func (b *Bytecode) String() string {
-	return b.InsToString(b.Instruction, 4)
+	return b.InsToString(b.Instruction, 0, 4)
 }
 
 func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 	var args string
+	var idx int
 	switch len(def.OperandWidth) {
 	case 1:
+		idx = operand[0]
 		args = strconv.Itoa(operand[0])
 	case 2:
 		args = strconv.Itoa(operand[0]) + strconv.Itoa(operand[1])
@@ -52,26 +54,29 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 	}
 	switch def.Name {
 	case "OpConstant":
-		idx, e := strconv.Atoi(args)
-		if e != nil {
-			fmt.Println(e)
-		}
 		obj := b.Constants[idx]
-		args += " ==> " + string(obj.Type()) + " " + obj.Inspect()
-	case "OpUpdate":
-		args = " => var " + args
-	case "OpClosure":
-		idx, e := strconv.Atoi(args)
-		if e != nil {
-			fmt.Println(e)
+		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
+	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal":
+		if name, ok := b.Symbols.findByIndex(idx); ok {
+			args = name
 		}
+	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal":
+		if name, ok := b.Symbols.Inner.findByIndex(idx); ok {
+			args = name
+		}
+	case "OpClosure":
 		fn := b.Functions[idx].(object.CompiledFunc)
 		var argSb strings.Builder
-		argSb.WriteString(args)
-		argSb.WriteString(" => Func {" + fn.FnName + "}")
-		//argSb.WriteString("\n" + b.InsToString(fn.Instructions, 8))
+		argSb.WriteString("Func {" + fn.FnName + "}")
+		RecursionLimit--
+		if RecursionLimit <= 0 {
+			return args
+		}
+		argSb.WriteString("\n" + b.InsToString(fn.Instructions, (30-RecursionLimit)*2, 4))
 		return argSb.String()
+	case "OpGetBuiltin":
+		builtIn := object.BuiltinFns[idx]
+		args = builtIn.Name
 	}
-
 	return args
 }

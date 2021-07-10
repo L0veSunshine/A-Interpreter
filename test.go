@@ -2,7 +2,7 @@ package main
 
 import (
 	"Interpreter/compiler"
-	vm2 "Interpreter/vm"
+	"Interpreter/vm"
 	"fmt"
 	"sync"
 )
@@ -27,12 +27,12 @@ func run(code string) string {
 	comp := singleComp()
 	comp.Compile(ast)
 	fmt.Println(comp.ByteCode())
-	vm := vm2.NewVM()
-	if err := vm.Run(comp.ByteCode()); err != nil {
+	VM := vm.NewVM()
+	if err := VM.Run(comp.ByteCode()); err != nil {
 		return fmt.Sprint(err)
 	}
-	if vm.LastPop() != nil {
-		return vm.LastPop().Inspect()
+	if VM.LastPop() != nil {
+		return VM.LastPop().Inspect()
 	}
 	return ""
 }

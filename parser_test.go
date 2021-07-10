@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-var s = `10/2-9*8*2`
+var s = `var t=10/2-9*8*2
+print(t)`
 var s1 = `{var a=1
 var b=a+3
 b=b+2*a
@@ -62,7 +63,7 @@ for(a<=10000000){
 if(a%3==1){
 sum=sum+a}
 a=a+1}
-sum`
+print(sum)`
 
 var s11 = `var a=2
 var sum=0
@@ -120,9 +121,7 @@ var a=0
 var x=0
 for (a<1000){
 sqrt(sqrt(4)+sqrt(sqrt(1)+sqrt(4)))
-a
 a=a+1}
-x
 `
 
 var s16 = `
@@ -155,21 +154,21 @@ a=a+1}
 if(res>=2){
 res=res+10}
 print("你好")
-print(res)`
+print(res+"hello")`
 
 var s18 = `
-var start=10
+var start=30
 def fib(x){
 if(x<=1){
 return x}else{
 return fib(x-1)+fib(x-2)}
 }
-var res=fib(30)
-print(res)`
+start=fib(start)
+print(start)`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s18)
+	lex := NewLexer(s)
 	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
@@ -189,7 +188,7 @@ func TestParser_Parse(t *testing.T) {
 	}
 	fmt.Println("Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
 	fmt.Println("Run Time:" + strconv.FormatFloat(time.Since(st1).Seconds(), 'f', -1, 32))
-	fmt.Println(vm.LastPop().Inspect())
+	//fmt.Println(vm.LastPop().Inspect())
 }
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()

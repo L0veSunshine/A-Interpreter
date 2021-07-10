@@ -18,8 +18,8 @@ type Compiler struct {
 
 	debug       bool
 	constants   []object.Object
-	symbolTable *SymbolTable
-	functions   *FuncTable
+	symbolTable *bytecode.SymbolTable
+	functions   *bytecode.FuncTable
 	scope       []CompilationScope
 	scopeIdx    int
 }
@@ -36,7 +36,7 @@ func NewScope() CompilationScope {
 func NewCompiler() *Compiler {
 	rootScope := NewScope()
 
-	st := NewSymbolTable()
+	st := bytecode.NewSymbolTable()
 	for k, v := range object.BuiltinFns {
 		st.DefineBuiltin(k, v.Name)
 	}
@@ -46,7 +46,7 @@ func NewCompiler() *Compiler {
 		debug:       false,
 		constants:   []object.Object{},
 		symbolTable: st,
-		functions:   NewFuncTable(),
+		functions:   bytecode.NewFuncTable(),
 		scope:       []CompilationScope{rootScope},
 		scopeIdx:    0,
 	}
@@ -198,7 +198,7 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.IdentNode:
 		symbol, ok := c.symbolTable.Resolve(node.Value)
 		if !ok {
-			fnIdx := c.functions.find(node.Value)
+			fnIdx := c.functions.Find(node.Value)
 			if fnIdx == -1 {
 				c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
 			}
@@ -217,7 +217,7 @@ func (c *Compiler) compile(node ast.Node) {
 		c.enterScope()
 
 		paramsCount := len(node.Parameters)
-		fnIdx := c.functions.regName(node.Name, paramsCount)
+		fnIdx := c.functions.RegName(node.Name, paramsCount)
 		for _, p := range node.Parameters {
 			c.symbolTable.Define(p.Value)
 		}
@@ -228,7 +228,7 @@ func (c *Compiler) compile(node ast.Node) {
 		if !c.isLastIns(code.OpReturnVal) {
 			c.emit(code.OpReturn)
 		}
-		numLocals := c.symbolTable.numDefinitions
+		numLocals := c.symbolTable.NumDefinitions()
 		instructions := c.leaveScope()
 
 		compiledFn := object.CompiledFunc{
@@ -237,7 +237,7 @@ func (c *Compiler) compile(node ast.Node) {
 			LocalsNum:     numLocals,
 			ParametersNum: paramsCount,
 		}
-		err := c.functions.addFunc(fnIdx, compiledFn)
+		err := c.functions.AddFunc(fnIdx, compiledFn)
 		if err != nil {
 			c.Push(err)
 		}
@@ -257,14 +257,15 @@ func (c *Compiler) compile(node ast.Node) {
 func (c *Compiler) Compile(node ast.Node) {
 	c.compile(node)
 	c.handleNoCall()
+	//need optimize
 }
 
 func (c *Compiler) handleNoCall() {
-	if c.functions.funcNum == 0 {
+	if c.functions.FuncNum == 0 {
 		return
 	}
 	var s = false
-	for _, fn := range c.functions.store {
+	for _, fn := range c.functions.Store {
 		s = s || fn.(object.CompiledFunc).Called
 	}
 	if !s && len(c.curInstruction()) == 0 {
@@ -300,7 +301,8 @@ func (c *Compiler) ByteCode() *bytecode.Bytecode {
 	byCode := &bytecode.Bytecode{
 		Instruction: c.curInstruction(),
 		Constants:   c.constants,
-		Functions:   c.functions.store,
+		Functions:   c.functions.Store,
+		Symbols:     c.symbolTable,
 	}
 	return byCode
 }
@@ -337,7 +339,7 @@ func (c *Compiler) enterScope() {
 	s := NewScope()
 	c.scope = append(c.scope, s)
 	c.scopeIdx++
-	c.symbolTable = NewEnclosedSymbolTable(c.symbolTable)
+	c.symbolTable = bytecode.NewEnclosedSymbolTable(c.symbolTable)
 }
 
 func (c *Compiler) leaveScope() code.Instructions {
@@ -357,31 +359,31 @@ func (c *Compiler) replaceLast(target code.Opcode) {
 	c.scope[c.scopeIdx].lastIns.op = target
 }
 
-func (c *Compiler) getScope(s Symbol) {
+func (c *Compiler) getScope(s bytecode.Symbol) {
 	switch s.Scope {
-	case GlobalScope:
+	case bytecode.GlobalScope:
 		c.emit(code.OpGetGlobal, s.Index)
-	case LocalScope:
+	case bytecode.LocalScope:
 		c.emit(code.OpGetLocal, s.Index)
-	case BuiltinScope:
+	case bytecode.BuiltinScope:
 		c.emit(code.OpGetBuiltin, s.Index)
 	}
 }
 
-func (c *Compiler) setScope(s Symbol) {
+func (c *Compiler) setScope(s bytecode.Symbol) {
 	switch s.Scope {
-	case GlobalScope:
+	case bytecode.GlobalScope:
 		c.emit(code.OpSetGlobal, s.Index)
-	case LocalScope:
+	case bytecode.LocalScope:
 		c.emit(code.OpSetLocal, s.Index)
 	}
 }
 
-func (c *Compiler) updateScope(s Symbol) {
+func (c *Compiler) updateScope(s bytecode.Symbol) {
 	switch s.Scope {
-	case GlobalScope:
+	case bytecode.GlobalScope:
 		c.emit(code.OpUpdateGlobal, s.Index)
-	case LocalScope:
+	case bytecode.LocalScope:
 		c.emit(code.OpUpdateLocal, s.Index)
 	}
 }

@@ -1,4 +1,4 @@
-package compiler
+package bytecode
 
 type SymbolScope string
 
@@ -16,10 +16,14 @@ type Symbol struct {
 }
 
 type SymbolTable struct {
-	Outer          *SymbolTable
+	Outer, Inner   *SymbolTable
 	store          map[string]Symbol
 	numDefinitions int
 	FreeSymbols    []Symbol
+}
+
+func (st *SymbolTable) NumDefinitions() int {
+	return st.numDefinitions
 }
 
 func (st *SymbolTable) Define(name string) Symbol {
@@ -74,6 +78,23 @@ func (st *SymbolTable) DefineBuiltin(index int, name string) Symbol {
 	return symbol
 }
 
+func (st *SymbolTable) findByIndex(idx int) (string, bool) {
+	var res string
+	for name, symbol := range st.store {
+		if symbol.Index == idx {
+			res = name
+		}
+	}
+	if res == "" {
+		if st.Outer == nil {
+			return res, false
+		} else {
+			return st.Outer.findByIndex(idx)
+		}
+	}
+	return res, true
+}
+
 func NewSymbolTable() *SymbolTable {
 	var frees []Symbol
 	return &SymbolTable{
@@ -85,6 +106,7 @@ func NewSymbolTable() *SymbolTable {
 
 func NewEnclosedSymbolTable(outer *SymbolTable) *SymbolTable {
 	s := NewSymbolTable()
+	outer.Inner = s
 	s.Outer = outer
 	return s
 }
