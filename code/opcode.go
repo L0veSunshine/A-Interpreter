@@ -7,6 +7,7 @@ const (
 	OpConstant
 	OpPop
 	OpTop
+	OpPrintTop
 
 	OpTrue
 	OpFalse

@@ -22,6 +22,7 @@ type Compiler struct {
 	functions   *bytecode.FuncTable
 	scope       []CompilationScope
 	scopeIdx    int
+	interpreter bool
 }
 
 func NewScope() CompilationScope {
@@ -50,6 +51,10 @@ func NewCompiler() *Compiler {
 		scope:       []CompilationScope{rootScope},
 		scopeIdx:    0,
 	}
+}
+
+func (c *Compiler) SetMode() {
+	c.interpreter = !c.interpreter
 }
 
 func (c *Compiler) Debug() {
@@ -261,16 +266,20 @@ func (c *Compiler) Compile(node ast.Node) {
 }
 
 func (c *Compiler) handleNoCall() {
-	if c.functions.FuncNum == 0 {
-		return
+	if c.functions.FuncNum != 0 {
+		var s = false
+		for _, fn := range c.functions.Store {
+			s = s || fn.(object.CompiledFunc).Called
+		}
+		if !s && len(c.curInstruction()) == 0 {
+			c.emit(code.OpNull)
+			c.emit(code.OpPop)
+		}
 	}
-	var s = false
-	for _, fn := range c.functions.Store {
-		s = s || fn.(object.CompiledFunc).Called
-	}
-	if !s && len(c.curInstruction()) == 0 {
-		c.emit(code.OpNull)
-		c.emit(code.OpPop)
+	if c.interpreter {
+		if c.isLastIns(code.OpPop) {
+			c.replaceLast(code.OpPrintTop)
+		}
 	}
 }
 

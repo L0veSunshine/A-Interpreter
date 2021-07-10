@@ -152,9 +152,7 @@ for (a<2){
 res=sqrt(sqrt(4)+sqrt(9))
 a=a+1}
 if(res>=2){
-res=res+10}
-print("你好")
-print(res+"hello")`
+res=res+10}`
 
 var s18 = `
 var start=30
@@ -166,9 +164,11 @@ return fib(x-1)+fib(x-2)}
 start=fib(start)
 print(start)`
 
+var s19 = `(1>2)==false`
+
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s)
+	lex := NewLexer(s19)
 	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
@@ -178,6 +178,7 @@ func TestParser_Parse(t *testing.T) {
 		fmt.Println(p.Errs(), len(p.Errs()))
 	}
 	c := compiler.NewCompiler()
+	c.SetMode()
 	c.Compile(ast)
 	c.Debug()
 	st1 := time.Now()

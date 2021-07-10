@@ -15,6 +15,7 @@ var Definitions = map[Opcode]Definition{
 	OpConstant:     {"OpConstant", []int{2}},
 	OpPop:          {"OpPop", []int{}},
 	OpTop:          {"OpTop", []int{}},
+	OpPrintTop:     {"OpPrintTop", []int{}},
 	OpAdd:          {"OpAdd", []int{}},
 	OpSub:          {"OpSub", []int{}},
 	OpMul:          {"OpMul", []int{}},

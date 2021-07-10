@@ -120,6 +120,8 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			}
 		case code.OpPop:
 			vm.pop()
+		case code.OpPrintTop:
+			vm.printTop()
 		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpMod:
 			err := vm.executeBinOp(op)
 			if err != nil {
@@ -491,6 +493,15 @@ func (vm *VM) executeCall(numArgs int) error {
 		return vm.callBuiltin(callee, numArgs)
 	default:
 		return fmt.Errorf("calling non-function and non-built-in")
+	}
+}
+
+func (vm *VM) printTop() {
+	topObj := vm.top()
+	if topObj != NullObj {
+		printFn := object.GetBuiltinFn("print")
+		printFn.Fn(topObj)
+		vm.sp = vm.sp - 2
 	}
 }
 
