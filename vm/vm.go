@@ -12,6 +12,7 @@ import (
 const (
 	StackSize  = 2048
 	GlobalSize = 65536
+	LocalSize  = 4096
 	MaxFrame   = 1024
 )
 
@@ -26,7 +27,6 @@ type VM struct {
 	functions []object.Object
 
 	stack    [StackSize]object.Object
-	globals  [GlobalSize]object.Object
 	sp       int
 	frames   []Frame
 	frameIdx int
@@ -87,8 +87,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	var ins code.Instructions
 	var op code.Opcode
 
-	mainFn := object.CompiledFunc{Instructions: bytecode.Instruction}
-	mainFrame := NewFrame(mainFn, 0)
+	mainFrame := NewFrame(bytecode.Instruction, GlobalSize, 0)
 	vm.frames[0] = mainFrame
 	vm.constants = bytecode.Constants
 	vm.functions = bytecode.Functions
@@ -161,18 +160,18 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpSetGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpSetGlobal
-			vm.globals[globalIdx] = vm.pop()
+			vm.currentFrame().vars[globalIdx] = vm.pop()
 		case code.OpGetGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpGetGlobal
-			err := vm.push(vm.globals[globalIdx])
+			err := vm.push(vm.currentFrame().vars[globalIdx])
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
-			vm.globals[globalIdx] = vm.top()
+			vm.currentFrame().vars[globalIdx] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}
@@ -203,22 +202,18 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpSetLocal:
 			localIndex := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			frame := vm.currentFrame()
-			vm.stack[frame.basePoint+int(localIndex)] = vm.pop()
+			vm.currentFrame().vars[localIndex] = vm.pop()
 		case code.OpGetLocal:
 			localIndex := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			frame := vm.currentFrame()
-			err := vm.push(vm.stack[frame.basePoint+int(localIndex)])
+			err := vm.push(vm.currentFrame().vars[localIndex])
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateLocal:
 			localIndex := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			frame := vm.currentFrame()
-			idx := frame.basePoint + int(localIndex)
-			vm.stack[idx] = vm.top()
+			vm.currentFrame().vars[localIndex] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}
@@ -253,8 +248,8 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
 		return vm.executeBinOpFloat(op, left, right)
 	}
-	return fmt.Errorf("unsupported types for binary operation: %s %s",
-		left.Type(), right.Type())
+	return fmt.Errorf("unsupported types for binary operation: %s(%s) %s(%s) %s",
+		left.Type(), left.Inspect(), right.Type(), right.Inspect(), code.Definitions[op].Name)
 }
 
 func (vm *VM) compareBinOp(op code.Opcode) error {
@@ -512,9 +507,12 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
-	frame = NewFrame(fn, vm.sp-numArgs)
+	frame = NewFrame(fn.Instructions, fn.LocalsNum, vm.sp-numArgs)
+	fnArgs := vm.stack[vm.sp-numArgs : vm.sp]
+	for idx, arg := range fnArgs {
+		frame.vars[idx] = arg
+	}
 	vm.pushFrame(frame)
-	vm.sp = frame.basePoint + fn.LocalsNum
 	return nil
 }
 

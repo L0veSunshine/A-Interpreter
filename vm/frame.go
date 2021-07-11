@@ -6,19 +6,21 @@ import (
 )
 
 type Frame struct {
-	fn object.CompiledFunc
+	ins code.Instructions
 	ip,
 	basePoint int
+	vars []object.Object
 }
 
-func NewFrame(fn object.CompiledFunc, basePoint int) Frame {
+func NewFrame(ins code.Instructions, varsSize, basePoint int) Frame {
 	return Frame{
-		fn:        fn,
+		ins:       ins,
 		ip:        -1,
+		vars:      make([]object.Object, varsSize),
 		basePoint: basePoint,
 	}
 }
 
 func (f *Frame) Instructions() code.Instructions {
-	return f.fn.Instructions
+	return f.ins
 }

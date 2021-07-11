@@ -120,8 +120,9 @@ return i}
 var a=0
 var x=0
 for (a<1000){
-sqrt(sqrt(4)+sqrt(sqrt(1)+sqrt(4)))
+var x=sqrt(sqrt(4)+sqrt(sqrt(1)+sqrt(4)))
 a=a+1}
+x
 `
 
 var s16 = `
@@ -164,7 +165,24 @@ return fib(x-1)+fib(x-2)}
 start=fib(start)
 print(start)`
 
-var s19 = `(1>2)==false`
+var s19 = `
+def sum(){
+var s=0
+var start=0
+for(start<=1000){
+if(start%2==0){
+s=s+start}
+start=start+1}
+return s
+}
+var x=sum()
+print(x)`
+
+var s20 = `
+def add(x){
+return x+1}
+var v=add(1)
+v`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
@@ -189,7 +207,6 @@ func TestParser_Parse(t *testing.T) {
 	}
 	fmt.Println("Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
 	fmt.Println("Run Time:" + strconv.FormatFloat(time.Since(st1).Seconds(), 'f', -1, 32))
-	//fmt.Println(vm.LastPop().Inspect())
 }
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()

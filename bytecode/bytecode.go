@@ -17,6 +17,17 @@ type Bytecode struct {
 	Symbols     *SymbolTable
 }
 
+func (b *Bytecode) Ins() string {
+	ls := strings.Repeat("=", 40) + "\n"
+	var sb strings.Builder
+	sb.WriteString(ls)
+	sb.WriteString(fmt.Sprintf("%25s\n", "Byte Code"))
+	sb.WriteString(ls)
+	sb.WriteString(b.String() + "\n")
+	sb.WriteString(ls)
+	return sb.String()
+}
+
 func (b *Bytecode) InsToString(ins code.Instructions, start, indent int) string {
 	var sb strings.Builder
 	for i := 0; i < len(ins); i++ {

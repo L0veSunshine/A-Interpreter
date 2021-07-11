@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"strings"
 )
 
 type Compiler struct {
@@ -58,21 +57,14 @@ func (c *Compiler) SetMode() {
 }
 
 func (c *Compiler) Debug() {
-	ls := strings.Repeat("=", 40) + "\n"
 	c.debug = true
-	var sb strings.Builder
 	if c.debug {
-		sb.WriteString(ls)
-		sb.WriteString(fmt.Sprintf("%25s\n", "Byte Code"))
-		sb.WriteString(ls)
-		sb.WriteString(c.ByteCode().String() + "\n")
-		sb.WriteString(ls)
 		if c.HasError() {
 			fmt.Println("ERROR:", c.Errs())
 			return
 		}
+		fmt.Print(c.ByteCode().Ins())
 	}
-	fmt.Print(sb.String())
 }
 
 func (c *Compiler) compile(node ast.Node) {
