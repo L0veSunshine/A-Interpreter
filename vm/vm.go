@@ -12,7 +12,6 @@ import (
 const (
 	StackSize  = 2048
 	GlobalSize = 65536
-	LocalSize  = 4096
 	MaxFrame   = 1024
 )
 
@@ -160,18 +159,18 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpSetGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpSetGlobal
-			vm.currentFrame().vars[globalIdx] = vm.pop()
+			vm.frames[0].vars[globalIdx] = vm.pop()
 		case code.OpGetGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpGetGlobal
-			err := vm.push(vm.currentFrame().vars[globalIdx])
+			err := vm.push(vm.frames[0].vars[globalIdx])
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateGlobal:
 			globalIdx := code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
-			vm.currentFrame().vars[globalIdx] = vm.top()
+			vm.frames[0].vars[globalIdx] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}

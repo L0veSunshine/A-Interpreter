@@ -149,14 +149,14 @@ tmp=-(i**2-t)}
 return i}
 var a=0
 var res=0
-for (a<2){
+for (a<1000000){
 res=sqrt(sqrt(4)+sqrt(9))
 a=a+1}
 if(res>=2){
 res=res+10}`
 
 var s18 = `
-var start=30
+var start=35
 def fib(x){
 if(x<=1){
 return x}else{
@@ -169,7 +169,7 @@ var s19 = `
 def sum(){
 var s=0
 var start=0
-for(start<=1000){
+for(start<=100){
 if(start%2==0){
 s=s+start}
 start=start+1}
@@ -181,12 +181,12 @@ print(x)`
 var s20 = `
 def add(x){
 return x+1}
-var v=add(1)
-v`
+var x=add(12)
+x`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := NewLexer(s19)
+	lex := NewLexer(s20)
 	fmt.Println(lex.Array())
 	p := NewParser(lex)
 	ast := p.Parse()
