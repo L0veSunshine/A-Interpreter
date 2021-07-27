@@ -160,9 +160,6 @@ func (c *Compiler) compile(node ast.Node) {
 		c.compile(node.Condition)
 		jumpNotTruePos := c.emit(code.OpJumpNotTrue, 9999)
 		c.compile(node.Consequence)
-		if c.isLastIns(code.OpPop) {
-			c.removeLastOp()
-		}
 		jumpPos := c.emit(code.OpJump, 9999)
 		afterConSeqPos := len(c.curInstruction())
 		c.changeOperand(jumpNotTruePos, afterConSeqPos)
@@ -170,10 +167,8 @@ func (c *Compiler) compile(node ast.Node) {
 			c.emit(code.OpNull)
 		} else {
 			c.compile(node.Alternative)
-			if c.isLastIns(code.OpPop) {
-				c.removeLastOp()
-			}
 		}
+		c.emit(code.OpPop)
 		afterAlterPos := len(c.curInstruction())
 		c.changeOperand(jumpPos, afterAlterPos)
 	case ast.ForExpression:
@@ -181,9 +176,6 @@ func (c *Compiler) compile(node ast.Node) {
 		c.compile(node.Condition)
 		breakPos := c.emit(code.OpJumpNotTrue, 9999)
 		c.compile(node.Loop)
-		if c.isLastIns(code.OpPop) {
-			c.removeLastOp()
-		}
 		c.emit(code.OpJump, forStatPos)
 		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
