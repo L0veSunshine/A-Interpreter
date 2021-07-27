@@ -1,4 +1,4 @@
-package main
+package lexer
 
 import (
 	"Interpreter/errors"
@@ -9,7 +9,7 @@ import (
 type Lexer struct {
 	rs  []rune
 	pos int
-	loc *tokens.Locate
+	Loc *tokens.Locate
 	cur *utils.Char
 	*errors.Errors
 }
@@ -18,7 +18,7 @@ func NewLexer(text string) *Lexer {
 	l := &Lexer{
 		rs:     []rune(text),
 		Errors: errors.NewErr(),
-		loc: &tokens.Locate{
+		Loc: &tokens.Locate{
 			Column: 1,
 			Line:   1,
 		},
@@ -39,13 +39,13 @@ func (l Lexer) Array() []tokens.Token {
 
 func (l *Lexer) advance(step int) {
 	l.pos += step
-	l.loc.Column += step
+	l.Loc.Column += step
 	if l.pos >= len(l.rs) {
 		l.cur = utils.Code(0)
 	} else {
 		if l.cur.Equal("\n") {
-			l.loc.Column = 1
-			l.loc.Line += 1
+			l.Loc.Column = 1
+			l.Loc.Line += 1
 		}
 		l.cur = utils.Code(l.rs[l.pos])
 	}
@@ -87,9 +87,9 @@ func (l *Lexer) number() *tokens.Token {
 			value = append(value, l.cur.Rune())
 			l.advance(1)
 		}
-		return tokens.NToken(tokens.Float, string(value), l.loc)
+		return tokens.NToken(tokens.Float, string(value), l.Loc)
 	} else {
-		return tokens.NToken(tokens.Int, string(value), l.loc)
+		return tokens.NToken(tokens.Int, string(value), l.Loc)
 	}
 }
 
@@ -101,9 +101,9 @@ func (l *Lexer) id() *tokens.Token {
 	}
 	valueStr := string(value)
 	if cur, ok := tokens.Reserved[valueStr]; ok {
-		return tokens.NToken(cur, cur, l.loc)
+		return tokens.NToken(cur, cur, l.Loc)
 	}
-	t := tokens.NToken(tokens.Ident, valueStr, l.loc)
+	t := tokens.NToken(tokens.Ident, valueStr, l.Loc)
 	return t
 }
 
@@ -115,7 +115,7 @@ func (l *Lexer) string() *tokens.Token {
 		l.advance(1)
 	}
 	l.advance(1)
-	return tokens.NToken(tokens.String, string(rs), l.loc)
+	return tokens.NToken(tokens.String, string(rs), l.Loc)
 }
 
 func (l *Lexer) illegal() *tokens.Token {
@@ -125,14 +125,14 @@ func (l *Lexer) illegal() *tokens.Token {
 		l.advance(1)
 	}
 	l.NewErrorF("Illegal tokens %s at col%d, line%d.",
-		string(value), l.loc.Column, l.loc.Line)
-	return tokens.NToken(tokens.Illegal, string(value), l.loc)
+		string(value), l.Loc.Column, l.Loc.Line)
+	return tokens.NToken(tokens.Illegal, string(value), l.Loc)
 }
 
 func (l *Lexer) NextToken() *tokens.Token {
 LOOP:
 	l.skipWhitespace()
-	loc := l.loc
+	loc := l.Loc
 	switch {
 	case l.cur.Equal("#"):
 		l.advance(1)

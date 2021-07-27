@@ -2,6 +2,8 @@ package main
 
 import (
 	"Interpreter/compiler"
+	"Interpreter/lexer"
+	"Interpreter/parser"
 	"Interpreter/vm"
 	"fmt"
 	"sync"
@@ -18,8 +20,8 @@ func singleComp() *compiler.Compiler {
 }
 
 func run(code string) string {
-	lex := NewLexer(code)
-	parser := NewParser(lex)
+	lex := lexer.NewLexer(code)
+	parser := parser.NewParser(lex)
 	ast := parser.Parse()
 	if parser.HasError() {
 		return fmt.Sprint(parser.Errors.Errs())

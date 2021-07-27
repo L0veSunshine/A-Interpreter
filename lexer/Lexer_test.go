@@ -1,12 +1,15 @@
-package main
+package lexer
 
 import (
 	"fmt"
 	"testing"
 )
 
+var eg = `var t=10/2-9*8*2
+print(t)`
+
 func TestNewLexer(t *testing.T) {
-	lex := NewLexer(s)
+	lex := NewLexer(eg)
 	for i := 0; i < 50; i++ {
 		fmt.Println(lex.NextToken())
 	}
@@ -16,7 +19,7 @@ func BenchmarkLexer_Array(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lex := NewLexer(s)
+		lex := NewLexer(eg)
 		lex.Array()
 	}
 }

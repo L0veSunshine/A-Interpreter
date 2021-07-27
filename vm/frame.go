@@ -12,11 +12,11 @@ type Frame struct {
 	vars []object.Object
 }
 
-func NewFrame(ins code.Instructions, varsSize, basePoint int) Frame {
+func NewFrame(ins code.Instructions, vars []object.Object, basePoint int) Frame {
 	return Frame{
 		ins:       ins,
 		ip:        -1,
-		vars:      make([]object.Object, varsSize),
+		vars:      vars,
 		basePoint: basePoint,
 	}
 }

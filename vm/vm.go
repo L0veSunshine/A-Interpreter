@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -23,9 +25,9 @@ var (
 
 type VM struct {
 	constants []object.Object
-	functions []object.Object
 
 	stack    [StackSize]object.Object
+	globals  []object.Object
 	sp       int
 	frames   []Frame
 	frameIdx int
@@ -34,6 +36,7 @@ type VM struct {
 func NewVM() *VM {
 	frames := make([]Frame, MaxFrame)
 	return &VM{
+		globals:  make([]object.Object, GlobalSize),
 		sp:       0, //stack pointer
 		frames:   frames,
 		frameIdx: 1,
@@ -86,10 +89,8 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	var ins code.Instructions
 	var op code.Opcode
 
-	mainFrame := NewFrame(bytecode.Instruction, GlobalSize, 0)
-	vm.frames[0] = mainFrame
+	vm.frames[0] = NewFrame(bytecode.Instruction, vm.globals, 0)
 	vm.constants = bytecode.Constants
-	vm.functions = bytecode.Functions
 
 	for vm.currentFrame().ip < len(vm.currentFrame().Instructions())-1 {
 		vm.currentFrame().ip++
@@ -227,7 +228,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpClosure:
 			fnIdx := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip += 1
-			err := vm.push(vm.functions[fnIdx])
+			err := vm.push(vm.constants[fnIdx])
 			if err != nil {
 				return err
 			}
@@ -506,7 +507,8 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
-	frame = NewFrame(fn.Instructions, fn.LocalsNum, vm.sp-numArgs)
+	newVars := make([]object.Object, fn.LocalsNum)
+	frame = NewFrame(fn.Instructions, newVars, vm.sp-numArgs)
 	fnArgs := vm.stack[vm.sp-numArgs : vm.sp]
 	for idx, arg := range fnArgs {
 		frame.vars[idx] = arg
@@ -525,4 +527,23 @@ func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
 		return vm.push(result)
 	}
 	return vm.push(NullObj)
+}
+
+func (vm *VM) debug(operandWidth int) {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for idx, o := range vm.stack {
+		if o != nil {
+			sb.WriteString(o.Inspect() + ",")
+		} else {
+			sb.WriteString("nil,")
+		}
+		if idx == vm.sp {
+			break
+		}
+	}
+	sb.WriteString("]")
+	fmt.Println("Current Frame:" + strconv.Itoa(vm.frameIdx) + " Instruction Pointer:" +
+		strconv.Itoa(vm.currentFrame().ip-operandWidth))
+	fmt.Println("Stack: "+sb.String()+"  Current Pointer:", vm.sp)
 }

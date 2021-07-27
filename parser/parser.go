@@ -1,19 +1,21 @@
-package main
+package parser
 
 import (
 	"Interpreter/ast"
 	"Interpreter/errors"
+	"Interpreter/lexer"
 	"Interpreter/tokens"
 	"strconv"
 )
 
 type Parser struct {
-	lex *Lexer
+	lex *lexer.Lexer
 	curToken,
 	peekToken *tokens.Token
 	*errors.Errors
 	prefixFns map[string]prefixParseFn
 	infixFns  map[string]infixParseFn
+	SymTable  *SymTable
 }
 
 func (p *Parser) regPrefixFn(token string, fn prefixParseFn) {
@@ -24,15 +26,16 @@ func (p *Parser) regInfixFn(token string, fn infixParseFn) {
 	p.infixFns[token] = fn
 }
 
-func NewParser(lex *Lexer) *Parser {
+func NewParser(lex *lexer.Lexer) *Parser {
 	p := &Parser{
 		lex:       lex,
 		Errors:    errors.NewErr(),
 		prefixFns: map[string]prefixParseFn{},
 		infixFns:  map[string]infixParseFn{},
+		SymTable:  NewSymTable("Base"),
 	}
 	//确保词法分析器位置正确
-	p.lex.loc = &tokens.Locate{Column: 1, Line: 1}
+	p.lex.Loc = &tokens.Locate{Column: 1, Line: 1}
 
 	p.regPrefixFn(tokens.LParen, p.parseGroupedExpr)
 	p.regPrefixFn(tokens.Plus, p.parsePrefixExpr)
@@ -155,6 +158,7 @@ func (p *Parser) parseVarStatement() ast.Statement {
 		Token: *p.curToken,
 		Value: p.curToken.Literal,
 	}
+	p.SymTable.Define(p.curToken.Literal, I)
 	p.eatPeek(tokens.Assign)
 	p.next()
 	value := p.parseExpr(LOWEST)
@@ -409,6 +413,7 @@ func (p *Parser) parseFuncParams() []ast.IdentNode {
 		Token: *p.curToken,
 		Value: p.curToken.Literal,
 	}
+	p.SymTable.Define(p.curToken.Literal, I)
 	p.next()
 	params = append(params, param)
 	for p.curToken.Type == tokens.Comma {
@@ -428,9 +433,12 @@ func (p *Parser) parseFuncDef() ast.Expression {
 	token := p.curToken
 	p.eat(tokens.Func)
 	name := p.curToken.Literal
+	p.SymTable.Define(name, F)
+	p.SymTable = NewInnerSymTable(name, p.SymTable)
 	p.next()
 	params := p.parseFuncParams()
 	body := p.parseBlockStatement()
+	p.SymTable = p.SymTable.Outer
 	return ast.FuncDef{
 		Token:      *token,
 		Parameters: params,

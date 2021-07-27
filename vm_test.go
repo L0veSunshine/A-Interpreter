@@ -2,6 +2,8 @@ package main
 
 import (
 	"Interpreter/compiler"
+	"Interpreter/lexer"
+	"Interpreter/parser"
 	vm2 "Interpreter/vm"
 	"fmt"
 	"testing"
@@ -10,8 +12,8 @@ import (
 var exp = "9/2-9*8.102*2"
 
 func TestAll(t *testing.T) {
-	l := NewLexer(exp)
-	p := NewParser(l)
+	l := lexer.NewLexer(exp)
+	p := parser.NewParser(l)
 	nodes := p.Parse()
 	comp := compiler.NewCompiler()
 	comp.Compile(nodes)

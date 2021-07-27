@@ -6,6 +6,7 @@ import (
 	"Interpreter/code"
 	"Interpreter/errors"
 	"Interpreter/object"
+	"Interpreter/parser"
 	"Interpreter/tokens"
 	"fmt"
 	"reflect"
@@ -16,11 +17,10 @@ type Compiler struct {
 	*errors.Errors
 
 	debug       bool
-	constants   []object.Object
-	symbolTable *bytecode.SymbolTable
-	functions   *bytecode.FuncTable
+	constants   *ConstTable
 	scope       []CompilationScope
 	scopeIdx    int
+	symTable    *parser.SymTable
 	interpreter bool
 }
 
@@ -36,24 +36,24 @@ func NewScope() CompilationScope {
 func NewCompiler() *Compiler {
 	rootScope := NewScope()
 
-	st := bytecode.NewSymbolTable()
-	for k, v := range object.BuiltinFns {
-		st.DefineBuiltin(k, v.Name)
-	}
-
 	return &Compiler{
-		Errors:      errors.NewErr(),
-		debug:       false,
-		constants:   []object.Object{},
-		symbolTable: st,
-		functions:   bytecode.NewFuncTable(),
-		scope:       []CompilationScope{rootScope},
-		scopeIdx:    0,
+		Errors:    errors.NewErr(),
+		debug:     false,
+		constants: NewConstTable(),
+		scope:     []CompilationScope{rootScope},
+		scopeIdx:  0,
 	}
 }
 
 func (c *Compiler) SetMode() {
 	c.interpreter = !c.interpreter
+}
+
+func (c *Compiler) SetSymbol(table *parser.SymTable) {
+	c.symTable = table
+	for k, v := range object.BuiltinFns {
+		c.symTable.DefineBuiltin(v.Name, k)
+	}
 }
 
 func (c *Compiler) Debug() {
@@ -79,20 +79,19 @@ func (c *Compiler) compile(node ast.Node) {
 		}
 	case ast.ExprStatement:
 		c.compile(node.Expression)
-		c.emit(code.OpPop)
 	case ast.FuncStatement:
 		c.compile(node.Expression)
 	case ast.IntNode:
 		numObj := object.Int{Value: node.Value}
-		consIdx := c.addConstant(numObj)
+		consIdx := c.constants.AddObj(numObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.FloatNode:
 		numObj := object.Float{Value: node.Value}
-		consIdx := c.addConstant(numObj)
+		consIdx := c.constants.AddObj(numObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.StringNode:
 		strObj := object.String{Value: node.Value}
-		consIdx := c.addConstant(strObj)
+		consIdx := c.constants.AddObj(strObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.BooleanNode:
 		value := node.Value
@@ -190,34 +189,38 @@ func (c *Compiler) compile(node ast.Node) {
 		c.emit(code.OpNull)
 	case ast.VarStatement:
 		c.compile(node.Value)
-		symbol := c.symbolTable.Define(node.Indent.Value)
-		c.setScope(symbol)
-	case ast.IdentNode:
-		symbol, ok := c.symbolTable.Resolve(node.Value)
+		s, ok := c.symTable.Resolve(node.Indent.Value)
 		if !ok {
-			fnIdx := c.functions.Find(node.Value)
-			if fnIdx == -1 {
-				c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
-			}
-			c.emit(code.OpClosure, fnIdx)
+			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Indent.Value))
 		}
-		c.getScope(symbol)
+		c.setScope(s)
+	case ast.IdentNode:
+		s, ok := c.symTable.Resolve(node.Value)
+		if !ok {
+			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
+		}
+		if s.Type == parser.F && s.ScopeType != parser.BuiltIn {
+			idx, ok := c.constants.Find(s.Name)
+			if !ok {
+				c.NewErrorF("undefined func %s.", strconv.Quote(node.Value))
+			}
+			c.emit(code.OpClosure, idx)
+		} else {
+			c.getScope(s)
+		}
 	case ast.AssignStatement:
 		c.compile(node.Statement)
-		symbol, ok := c.symbolTable.Resolve(node.Identifier.Value)
+		s, ok := c.symTable.Resolve(node.Identifier.Value)
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
 		} else {
-			c.updateScope(symbol)
+			c.updateScope(s)
 		}
 	case ast.FuncDef:
 		c.enterScope()
-
+		c.symTable = parser.Search(node.Name, c.symTable)
 		paramsCount := len(node.Parameters)
-		fnIdx := c.functions.RegName(node.Name, paramsCount)
-		for _, p := range node.Parameters {
-			c.symbolTable.Define(p.Value)
-		}
+		fnIdx := c.constants.RegFunc(node.Name, paramsCount)
 		c.compile(node.FuncBody)
 		if c.isLastIns(code.OpPop) {
 			c.replaceLast(code.OpReturnVal)
@@ -225,7 +228,7 @@ func (c *Compiler) compile(node ast.Node) {
 		if !c.isLastIns(code.OpReturnVal) {
 			c.emit(code.OpReturn)
 		}
-		numLocals := c.symbolTable.NumDefinitions()
+		numLocals := c.symTable.NumDefinitions()
 		instructions := c.leaveScope()
 
 		compiledFn := object.CompiledFunc{
@@ -234,7 +237,7 @@ func (c *Compiler) compile(node ast.Node) {
 			LocalsNum:     numLocals,
 			ParametersNum: paramsCount,
 		}
-		err := c.functions.AddFunc(fnIdx, compiledFn)
+		err := c.constants.AddFunc(fnIdx, compiledFn)
 		if err != nil {
 			c.Push(err)
 		}
@@ -258,26 +261,13 @@ func (c *Compiler) Compile(node ast.Node) {
 }
 
 func (c *Compiler) handleNoCall() {
-	if c.functions.FuncNum != 0 {
-		var s = false
-		for _, fn := range c.functions.Store {
-			s = s || fn.(object.CompiledFunc).Called
-		}
-		if !s && len(c.curInstruction()) == 0 {
-			c.emit(code.OpNull)
-			c.emit(code.OpPop)
-		}
-	}
 	if c.interpreter {
 		if c.isLastIns(code.OpPop) {
 			c.replaceLast(code.OpPrintTop)
+		} else {
+			c.emit(code.OpPrintTop)
 		}
 	}
-}
-
-func (c *Compiler) addConstant(obj object.Object) (idx int) {
-	c.constants = append(c.constants, obj)
-	return len(c.constants) - 1
 }
 
 func (c *Compiler) emit(op code.Opcode, operand ...int) int {
@@ -299,11 +289,14 @@ func (c *Compiler) ByteCode() *bytecode.Bytecode {
 	if c.HasError() {
 		return &bytecode.Bytecode{}
 	}
+	ct := c.symTable
+	for ct.Outer != nil {
+		ct = ct.Outer
+	}
 	byCode := &bytecode.Bytecode{
 		Instruction: c.curInstruction(),
-		Constants:   c.constants,
-		Functions:   c.functions.Store,
-		Symbols:     c.symbolTable,
+		Constants:   c.constants.Store,
+		Symbols:     ct,
 	}
 	return byCode
 }
@@ -340,14 +333,12 @@ func (c *Compiler) enterScope() {
 	s := NewScope()
 	c.scope = append(c.scope, s)
 	c.scopeIdx++
-	c.symbolTable = bytecode.NewEnclosedSymbolTable(c.symbolTable)
 }
 
 func (c *Compiler) leaveScope() code.Instructions {
 	instructions := c.curInstruction()
 	c.scope = c.scope[:len(c.scope)-1]
 	c.scopeIdx--
-	c.symbolTable = c.symbolTable.Outer
 	return instructions
 }
 
@@ -360,32 +351,32 @@ func (c *Compiler) replaceLast(target code.Opcode) {
 	c.scope[c.scopeIdx].lastIns.op = target
 }
 
-func (c *Compiler) getScope(s bytecode.Symbol) {
-	switch s.Scope {
-	case bytecode.GlobalScope:
-		c.emit(code.OpGetGlobal, s.Index)
-	case bytecode.LocalScope:
-		c.emit(code.OpGetLocal, s.Index)
-	case bytecode.BuiltinScope:
-		c.emit(code.OpGetBuiltin, s.Index)
+func (c *Compiler) getScope(s parser.Symbol) {
+	switch s.ScopeType {
+	case parser.Global:
+		c.emit(code.OpGetGlobal, s.Id)
+	case parser.Local:
+		c.emit(code.OpGetLocal, s.Id)
+	case parser.BuiltIn:
+		c.emit(code.OpGetBuiltin, s.Id)
 	}
 }
 
-func (c *Compiler) setScope(s bytecode.Symbol) {
-	switch s.Scope {
-	case bytecode.GlobalScope:
-		c.emit(code.OpSetGlobal, s.Index)
-	case bytecode.LocalScope:
-		c.emit(code.OpSetLocal, s.Index)
+func (c *Compiler) setScope(s parser.Symbol) {
+	switch s.ScopeType {
+	case parser.Global:
+		c.emit(code.OpSetGlobal, s.Id)
+	case parser.Local:
+		c.emit(code.OpSetLocal, s.Id)
 	}
 }
 
-func (c *Compiler) updateScope(s bytecode.Symbol) {
-	switch s.Scope {
-	case bytecode.GlobalScope:
-		c.emit(code.OpUpdateGlobal, s.Index)
-	case bytecode.LocalScope:
-		c.emit(code.OpUpdateLocal, s.Index)
+func (c *Compiler) updateScope(s parser.Symbol) {
+	switch s.ScopeType {
+	case parser.Global:
+		c.emit(code.OpUpdateGlobal, s.Id)
+	case parser.Local:
+		c.emit(code.OpUpdateLocal, s.Id)
 	}
 }
 
