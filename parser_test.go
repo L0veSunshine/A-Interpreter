@@ -7,6 +7,7 @@ import (
 	"Interpreter/parser"
 	vm2 "Interpreter/vm"
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"testing"
 	"time"
@@ -149,13 +150,8 @@ tmp=i**2-t}else{
 tmp=-(i**2-t)}
 }
 return i}
-var a=0
-var res=0
-for (a<1000000){
-res=sqrt(sqrt(4)+sqrt(9))
-a=a+1}
-if(res>=2){
-res=res+10}`
+var res=sqrt(10)
+print(res)`
 
 var s18 = `
 var start=35
@@ -221,6 +217,7 @@ return x+1
 print(add1(10))`
 
 func TestParser_Parse(t *testing.T) {
+	debug.SetGCPercent(-1)
 	st := time.Now()
 	lex := lexer.NewLexer(s18)
 	fmt.Println(lex.Array())
@@ -232,7 +229,7 @@ func TestParser_Parse(t *testing.T) {
 		fmt.Println(p.Errs(), len(p.Errs()))
 	}
 	c := compiler.NewCompiler()
-	//c.SetMode()
+	c.SetMode()
 	c.SetSymbol(p.SymTable)
 	c.Compile(ast)
 	c.Debug()

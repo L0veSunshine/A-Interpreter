@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-type BuiltinFunction func(args ...Object) Object
+type BuiltinFunction func(args ...*BaseObject) *BaseObject
 
 type ObjType string
 

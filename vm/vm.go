@@ -9,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 const (
@@ -20,14 +21,14 @@ const (
 var (
 	StackOverErr = fmt.Errorf("stack overflow")
 	StackIdxErr  = fmt.Errorf("invalid index")
-	NullObj      = object.Null{}
+	NullObj      = (*object.BaseObject)(&object.NullObject{Type: object.NullObj})
 )
 
 type VM struct {
-	constants []object.Object
+	constants []*object.BaseObject
 
-	stack    [StackSize]object.Object
-	globals  []object.Object
+	stack    [StackSize]*object.BaseObject
+	globals  []*object.BaseObject
 	sp       int
 	frames   []Frame
 	frameIdx int
@@ -36,21 +37,21 @@ type VM struct {
 func NewVM() *VM {
 	frames := make([]Frame, MaxFrame)
 	return &VM{
-		globals:  make([]object.Object, GlobalSize),
+		globals:  make([]*object.BaseObject, GlobalSize),
 		sp:       0, //stack pointer
 		frames:   frames,
 		frameIdx: 1,
 	}
 }
 
-func (vm *VM) LastPop() object.Object {
+func (vm *VM) LastPop() *object.BaseObject {
 	if vm.sp >= 0 {
 		return vm.stack[vm.sp]
 	}
 	return NullObj
 }
 
-func (vm *VM) push(obj object.Object) error {
+func (vm *VM) push(obj *object.BaseObject) error {
 	nIdx := vm.sp + 1
 	if nIdx > StackSize {
 		return StackOverErr
@@ -60,14 +61,14 @@ func (vm *VM) push(obj object.Object) error {
 	return nil
 }
 
-func (vm *VM) pop() object.Object {
+func (vm *VM) pop() *object.BaseObject {
 	nIdx := vm.sp - 1
 	obj := vm.stack[nIdx]
 	vm.sp = nIdx
 	return obj
 }
 
-func (vm *VM) top() object.Object {
+func (vm *VM) top() *object.BaseObject {
 	idx := vm.sp - 1
 	if idx >= 0 {
 		return vm.stack[idx]
@@ -75,7 +76,7 @@ func (vm *VM) top() object.Object {
 	return nil
 }
 
-func (vm *VM) replace(obj object.Object) error {
+func (vm *VM) replace(obj *object.BaseObject) error {
 	idx := vm.sp - 1
 	if idx >= 0 {
 		vm.stack[idx] = obj
@@ -195,7 +196,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpReturn:
 			frame := vm.popFrame()
 			vm.sp = frame.basePoint - 1
-			err := vm.push(object.Null{})
+			err := vm.push(NullObj)
 			if err != nil {
 				return err
 			}
@@ -221,7 +222,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			builtinIdx := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip += 1
 			def := object.BuiltinFns[builtinIdx]
-			err := vm.push(def.Builtin)
+			err := vm.push((*object.BaseObject)(unsafe.Pointer(def.Builtin)))
 			if err != nil {
 				return err
 			}
@@ -241,22 +242,22 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
 	switch {
-	case right.Type() == object.IntObj && left.Type() == object.IntObj:
+	case right.Type == object.IntObj && left.Type == object.IntObj:
 		return vm.executeBinOpInt(op, left, right)
-	case right.Type() == object.StringObj || left.Type() == object.StringObj:
+	case right.Type == object.StringObj || left.Type == object.StringObj:
 		return vm.executeBinOpStr(op, left, right)
-	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
+	case right.Type == object.FloatObj || left.Type == object.FloatObj:
 		return vm.executeBinOpFloat(op, left, right)
 	}
-	return fmt.Errorf("unsupported types for binary operation: %s(%s) %s(%s) %s",
-		left.Type(), left.Inspect(), right.Type(), right.Inspect(), code.Definitions[op].Name)
+	return fmt.Errorf("unsupported types for binary operation: %s %s %s",
+		left.Type, right.Type, code.Definitions[op].Name)
 }
 
 func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
-	if (left.Type() == object.IntObj || left.Type() == object.FloatObj) &&
-		(right.Type() == object.IntObj || right.Type() == object.FloatObj) {
+	if (left.Type == object.IntObj || left.Type == object.FloatObj) &&
+		(right.Type == object.IntObj || right.Type == object.FloatObj) {
 		return vm.compareNumObj(op, left, right)
 	}
 	var res bool
@@ -275,10 +276,10 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
 	switch {
-	case left.Type() == object.BooleanObj && right.Type() == object.BooleanObj:
+	case left.Type == object.BooleanObj && right.Type == object.BooleanObj:
 		var res bool
-		leftVal := left.(object.Boolean).Value
-		rightVal := right.(object.Boolean).Value
+		leftVal := (*object.BooleanObject)(unsafe.Pointer(left)).BVal
+		rightVal := (*object.BooleanObject)(unsafe.Pointer(right)).BVal
 		switch op {
 		case code.OpAnd:
 			res = leftVal && rightVal
@@ -287,25 +288,25 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 		}
 		return vm.replace(nativeBoolToBool(res))
 	default:
-		return fmt.Errorf("unsporrted type %s", right.Type())
+		return fmt.Errorf("unsporrted type %s", right.Type)
 	}
 }
 
-func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
+func (vm *VM) compareNumObj(op code.Opcode, left, right *object.BaseObject) error {
 	var leftVal float64
 	var rightVal float64
 	var res bool
-	switch left.(type) {
-	case object.Int:
-		leftVal = float64(left.(object.Int).Value)
-	case object.Float:
-		leftVal = left.(object.Float).Value
+	switch left.Type {
+	case object.IntObj:
+		leftVal = float64((*object.IntObject)(unsafe.Pointer(left)).IVal)
+	case object.FloatObj:
+		leftVal = (*object.FloatObject)(unsafe.Pointer(left)).FVal
 	}
-	switch right.(type) {
-	case object.Int:
-		rightVal = float64(right.(object.Int).Value)
-	case object.Float:
-		rightVal = right.(object.Float).Value
+	switch right.Type {
+	case object.IntObj:
+		rightVal = float64((*object.IntObject)(unsafe.Pointer(right)).IVal)
+	case object.FloatObj:
+		rightVal = (*object.FloatObject)(unsafe.Pointer(right)).FVal
 	}
 	switch op {
 	case code.OpEqual:
@@ -322,24 +323,31 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 	return vm.replace(nativeBoolToBool(res))
 }
 
-func nativeBoolToBool(b bool) object.Boolean {
-	return object.Boolean{Value: b}
+func nativeBoolToBool(b bool) *object.BaseObject {
+	tmp := &object.BooleanObject{
+		Type: object.BooleanObj,
+		BVal: b,
+	}
+	return (*object.BaseObject)(unsafe.Pointer(tmp))
 }
 
-func objToNativeBool(obj object.Object) bool {
-	switch obj := obj.(type) {
-	case object.Boolean:
-		if obj.Value {
+func objToNativeBool(obj *object.BaseObject) bool {
+	switch obj.Type {
+	case object.BooleanObj:
+		rev := (*object.BooleanObject)(unsafe.Pointer(obj))
+		if rev.BVal {
 			return true
 		}
 		return false
-	case object.Int:
-		if obj.Value == 0 {
+	case object.IntObj:
+		rev := (*object.IntObject)(unsafe.Pointer(obj))
+		if rev.IVal == 0 {
 			return false
 		}
 		return true
-	case object.Float:
-		if obj.Value == 0 {
+	case object.FloatObj:
+		rev := (*object.FloatObject)(unsafe.Pointer(obj))
+		if rev.FVal == 0 {
 			return false
 		}
 		return true
@@ -348,9 +356,11 @@ func objToNativeBool(obj object.Object) bool {
 	}
 }
 
-func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.Int).Value
-	rightVal := right.(object.Int).Value
+func (vm *VM) executeBinOpInt(op code.Opcode, left, right *object.BaseObject) error {
+	leftVal := (*object.IntObject)(unsafe.Pointer(left)).IVal
+	rightVal := (*object.IntObject)(unsafe.Pointer(right)).IVal
+	i := &object.IntObject{Type: object.IntObj}
+	f := &object.FloatObject{Type: object.FloatObj}
 	var res int
 	var fRes float64
 	switch op {
@@ -366,32 +376,37 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 		} else {
 			return errors.New("division by zero")
 		}
-		return vm.replace(object.Float{Value: fRes})
+		f.FVal = fRes
+		tar := (*object.BaseObject)(unsafe.Pointer(f))
+		return vm.replace(tar)
 	case code.OpMod:
 		res = leftVal % rightVal
 	case code.OpPow:
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
-		return vm.replace(object.Float{Value: fRes})
+		f.FVal = fRes
+		return vm.replace((*object.BaseObject)(unsafe.Pointer(f)))
 	default:
 		return fmt.Errorf("unknown integer operator: %d", op)
 	}
-	return vm.replace(object.Int{Value: res})
+	i.IVal = res
+	return vm.replace((*object.BaseObject)(unsafe.Pointer(i)))
 }
 
-func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error {
+func (vm *VM) executeBinOpFloat(op code.Opcode, left, right *object.BaseObject) error {
 	var leftVal float64
 	var rightVal float64
-	switch left.(type) {
-	case object.Int:
-		leftVal = float64(left.(object.Int).Value)
-	case object.Float:
-		leftVal = left.(object.Float).Value
+	f := &object.FloatObject{Type: object.FloatObj}
+	switch left.Type {
+	case object.IntObj:
+		leftVal = float64((*object.IntObject)(unsafe.Pointer(left)).IVal)
+	case object.FloatObj:
+		leftVal = (*object.FloatObject)(unsafe.Pointer(left)).FVal
 	}
-	switch right.(type) {
-	case object.Int:
-		rightVal = float64(right.(object.Int).Value)
-	case object.Float:
-		rightVal = right.(object.Float).Value
+	switch right.Type {
+	case object.IntObj:
+		rightVal = float64((*object.IntObject)(unsafe.Pointer(right)).IVal)
+	case object.FloatObj:
+		rightVal = (*object.FloatObject)(unsafe.Pointer(right)).FVal
 	}
 	var res float64
 	switch op {
@@ -414,15 +429,17 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 	default:
 		return fmt.Errorf("unknown operator %d for integer", op)
 	}
-	return vm.replace(object.Float{Value: res})
+	f.FVal = res
+	return vm.replace((*object.BaseObject)(unsafe.Pointer(f)))
 }
 
-func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
+func (vm *VM) executeBinOpStr(op code.Opcode, left, right *object.BaseObject) error {
 	var leftVal, rightVal string
-	leftVal = left.Inspect()
-	rightVal = right.Inspect()
+	leftVal = (*object.StringObject)(unsafe.Pointer(left)).SVal
+	rightVal = (*object.StringObject)(unsafe.Pointer(right)).SVal
 	if op == code.OpAdd {
-		return vm.replace(object.String{Value: leftVal + rightVal})
+		so := object.StringObject{Type: object.StringObj, SVal: leftVal + rightVal}
+		return vm.replace((*object.BaseObject)(unsafe.Pointer(&so)))
 	} else {
 		return fmt.Errorf("unknown operator %d for str", op)
 	}
@@ -430,37 +447,45 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 
 func (vm *VM) executePrefix(op code.Opcode) error {
 	token := vm.top()
-	switch token.Type() {
+	switch token.Type {
 	case object.IntObj:
-		value := token.(object.Int).Value
+		value := (*object.IntObject)(unsafe.Pointer(token)).IVal
 		switch op {
 		case code.OpMinus:
 			value = -value
 		case code.OpPlus:
 		default:
-			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type)
 		}
-		return vm.replace(object.Int{Value: value})
+		i := &object.IntObject{
+			Type: object.IntObj,
+			IVal: value,
+		}
+		return vm.replace((*object.BaseObject)(unsafe.Pointer(i)))
 	case object.FloatObj:
-		value := token.(object.Float).Value
+		value := (*object.FloatObject)(unsafe.Pointer(token)).FVal
 		switch op {
 		case code.OpMinus:
 			value = -value
 		case code.OpPlus:
 		default:
-			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type)
 		}
-		return vm.replace(object.Float{Value: value})
+		f := &object.FloatObject{
+			Type: object.IntObj,
+			FVal: value,
+		}
+		return vm.replace((*object.BaseObject)(unsafe.Pointer(f)))
 	case object.BooleanObj:
-		value := token.(object.Boolean).Value
+		value := (*object.BooleanObject)(unsafe.Pointer(token)).BVal
 		if op == code.OpNot {
 			value = !value
 		} else {
-			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf("unkonwn opCode %s for %s", string(op), token.Type)
 		}
 		return vm.replace(nativeBoolToBool(value))
 	}
-	return fmt.Errorf("unsupported type for negation: %s", token.Type())
+	return fmt.Errorf("unsupported type for negation: %s", token.Type)
 }
 
 func (vm *VM) currentFrame() *Frame {
@@ -477,15 +502,17 @@ func (vm *VM) popFrame() Frame {
 	return vm.frames[vm.frameIdx]
 }
 
-var callee object.Object
+var callee *object.BaseObject
 
 func (vm *VM) executeCall(numArgs int) error {
 	callee = vm.stack[vm.sp-1-numArgs]
-	switch callee := callee.(type) {
-	case object.CompiledFunc:
-		return vm.callFunc(callee, numArgs)
-	case object.Builtin:
-		return vm.callBuiltin(callee, numArgs)
+	switch callee.Type {
+	case object.CompiledFuncObj:
+		rev := (*object.CFunc)(unsafe.Pointer(callee))
+		return vm.callFunc(rev, numArgs)
+	case object.BuiltinObj:
+		rev := (*object.BFunc)(unsafe.Pointer(callee))
+		return vm.callBuiltin(rev, numArgs)
 	default:
 		return fmt.Errorf("calling non-function and non-built-in")
 	}
@@ -502,12 +529,12 @@ func (vm *VM) printTop() {
 
 var frame Frame
 
-func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
+func (vm *VM) callFunc(fn *object.CFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
-	newVars := make([]object.Object, fn.LocalsNum)
+	newVars := make([]*object.BaseObject, fn.LocalsNum)
 	frame = NewFrame(fn.Instructions, newVars, vm.sp-numArgs)
 	fnArgs := vm.stack[vm.sp-numArgs : vm.sp]
 	for idx, arg := range fnArgs {
@@ -517,9 +544,9 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	return nil
 }
 
-var args []object.Object
+var args []*object.BaseObject
 
-func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
+func (vm *VM) callBuiltin(builtin *object.BFunc, argNums int) error {
 	args = vm.stack[vm.sp-argNums : vm.sp]
 	result := builtin.Fn(args...)
 	vm.sp = vm.sp - argNums - 1
@@ -534,7 +561,7 @@ func (vm *VM) debug(operandWidth int) {
 	sb.WriteString("[")
 	for idx, o := range vm.stack {
 		if o != nil {
-			sb.WriteString(o.Inspect() + ",")
+			sb.WriteString(object.Inspect(o) + ",")
 		} else {
 			sb.WriteString("nil,")
 		}

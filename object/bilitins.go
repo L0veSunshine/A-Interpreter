@@ -4,27 +4,29 @@ import "fmt"
 
 type BuiltinFn struct {
 	Name    string
-	Builtin Builtin
+	Builtin *BFunc
 }
 
 var BuiltinFns = []BuiltinFn{
 	{
 		"print",
-		Builtin{Fn: func(args ...Object) Object {
-			for _, arg := range args {
-				fmt.Println(arg.Inspect())
-			}
-			return nil
-		},
+		&BFunc{
+			Type: BuiltinObj,
+			Fn: func(args ...*BaseObject) *BaseObject {
+				for _, arg := range args {
+					fmt.Println(Inspect(arg))
+				}
+				return nil
+			},
 		},
 	},
 }
 
-func GetBuiltinFn(name string) Builtin {
+func GetBuiltinFn(name string) *BFunc {
 	for _, f := range BuiltinFns {
 		if f.Name == name {
 			return f.Builtin
 		}
 	}
-	return Builtin{}
+	return nil
 }

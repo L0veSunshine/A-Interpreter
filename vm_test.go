@@ -3,6 +3,7 @@ package main
 import (
 	"Interpreter/compiler"
 	"Interpreter/lexer"
+	"Interpreter/object"
 	"Interpreter/parser"
 	vm2 "Interpreter/vm"
 	"fmt"
@@ -23,5 +24,5 @@ func TestAll(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(vm.LastPop().Inspect())
+	fmt.Println(object.Inspect(vm.LastPop()))
 }

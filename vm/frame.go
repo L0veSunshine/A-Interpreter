@@ -9,10 +9,10 @@ type Frame struct {
 	ins code.Instructions
 	ip,
 	basePoint int
-	vars []object.Object
+	vars []*object.BaseObject
 }
 
-func NewFrame(ins code.Instructions, vars []object.Object, basePoint int) Frame {
+func NewFrame(ins code.Instructions, vars []*object.BaseObject, basePoint int) Frame {
 	return Frame{
 		ins:       ins,
 		ip:        -1,

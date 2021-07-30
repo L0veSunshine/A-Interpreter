@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 var RecursionLimit = 30
 
 type Bytecode struct {
 	Instruction code.Instructions
-	Constants   []object.Object
+	Constants   []*object.BaseObject
 	Symbols     *parser.SymTable
 }
 
@@ -71,7 +72,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 	switch def.Name {
 	case "OpConstant":
 		obj := b.Constants[idx]
-		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
+		args = obj.Type + "(" + object.Inspect(obj) + ")"
 	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal":
 		if name, ok := b.Symbols.FindByIdx(idx); ok {
 			args = name
@@ -81,7 +82,8 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 			args = name
 		}
 	case "OpClosure":
-		fn := b.Constants[idx].(object.CompiledFunc)
+		fObj := b.Constants[idx]
+		fn := (*object.CFunc)(unsafe.Pointer(fObj))
 		var argSb strings.Builder
 		argSb.WriteString("Func <" + fn.FnName + ">")
 		RecursionLimit--

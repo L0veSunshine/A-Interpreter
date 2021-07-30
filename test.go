@@ -3,6 +3,7 @@ package main
 import (
 	"Interpreter/compiler"
 	"Interpreter/lexer"
+	"Interpreter/object"
 	"Interpreter/parser"
 	"Interpreter/vm"
 	"fmt"
@@ -34,7 +35,7 @@ func run(code string) string {
 		return fmt.Sprint(err)
 	}
 	if VM.LastPop() != nil {
-		return VM.LastPop().Inspect()
+		return object.Inspect(VM.LastPop())
 	}
 	return ""
 }

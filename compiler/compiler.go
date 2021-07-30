@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"unsafe"
 )
 
 type Compiler struct {
@@ -82,16 +83,16 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.FuncStatement:
 		c.compile(node.Expression)
 	case ast.IntNode:
-		numObj := object.Int{Value: node.Value}
-		consIdx := c.constants.AddObj(numObj)
+		numObj := &object.IntObject{Type: object.IntObj, IVal: node.Value}
+		consIdx := c.constants.AddObj((*object.BaseObject)(unsafe.Pointer(numObj)))
 		c.emit(code.OpConstant, consIdx)
 	case ast.FloatNode:
-		numObj := object.Float{Value: node.Value}
-		consIdx := c.constants.AddObj(numObj)
+		numObj := &object.FloatObject{Type: object.FloatObj, FVal: node.Value}
+		consIdx := c.constants.AddObj((*object.BaseObject)(unsafe.Pointer(numObj)))
 		c.emit(code.OpConstant, consIdx)
 	case ast.StringNode:
-		strObj := object.String{Value: node.Value}
-		consIdx := c.constants.AddObj(strObj)
+		strObj := &object.StringObject{Type: object.StringObj, SVal: node.Value}
+		consIdx := c.constants.AddObj((*object.BaseObject)(unsafe.Pointer(strObj)))
 		c.emit(code.OpConstant, consIdx)
 	case ast.BooleanNode:
 		value := node.Value
@@ -223,7 +224,8 @@ func (c *Compiler) compile(node ast.Node) {
 		numLocals := c.symTable.NumDefinitions()
 		instructions := c.leaveScope()
 
-		compiledFn := object.CompiledFunc{
+		compiledFn := &object.CFunc{
+			Type:          object.CompiledFuncObj,
 			FnName:        node.Name,
 			Instructions:  instructions,
 			LocalsNum:     numLocals,
