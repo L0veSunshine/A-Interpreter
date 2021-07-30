@@ -7,7 +7,6 @@ import (
 	"Interpreter/parser"
 	vm2 "Interpreter/vm"
 	"fmt"
-	"runtime/debug"
 	"strconv"
 	"testing"
 	"time"
@@ -217,7 +216,6 @@ return x+1
 print(add1(10))`
 
 func TestParser_Parse(t *testing.T) {
-	debug.SetGCPercent(-1)
 	st := time.Now()
 	lex := lexer.NewLexer(s18)
 	fmt.Println(lex.Array())

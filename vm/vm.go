@@ -324,11 +324,11 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right *object.BaseObject) erro
 }
 
 func nativeBoolToBool(b bool) *object.BaseObject {
-	tmp := &object.BooleanObject{
+	tmp := object.BooleanObject{
 		Type: object.BooleanObj,
 		BVal: b,
 	}
-	return (*object.BaseObject)(unsafe.Pointer(tmp))
+	return (*object.BaseObject)(unsafe.Pointer(&tmp))
 }
 
 func objToNativeBool(obj *object.BaseObject) bool {
@@ -359,8 +359,6 @@ func objToNativeBool(obj *object.BaseObject) bool {
 func (vm *VM) executeBinOpInt(op code.Opcode, left, right *object.BaseObject) error {
 	leftVal := (*object.IntObject)(unsafe.Pointer(left)).IVal
 	rightVal := (*object.IntObject)(unsafe.Pointer(right)).IVal
-	i := &object.IntObject{Type: object.IntObj}
-	f := &object.FloatObject{Type: object.FloatObj}
 	var res int
 	var fRes float64
 	switch op {
@@ -376,20 +374,23 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right *object.BaseObject) er
 		} else {
 			return errors.New("division by zero")
 		}
+		f := object.FloatObject{Type: object.FloatObj}
 		f.FVal = fRes
-		tar := (*object.BaseObject)(unsafe.Pointer(f))
+		tar := (*object.BaseObject)(unsafe.Pointer(&f))
 		return vm.replace(tar)
 	case code.OpMod:
 		res = leftVal % rightVal
 	case code.OpPow:
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
+		f := object.FloatObject{Type: object.FloatObj}
 		f.FVal = fRes
-		return vm.replace((*object.BaseObject)(unsafe.Pointer(f)))
+		return vm.replace((*object.BaseObject)(unsafe.Pointer(&f)))
 	default:
 		return fmt.Errorf("unknown integer operator: %d", op)
 	}
+	i := object.IntObject{Type: object.IntObj}
 	i.IVal = res
-	return vm.replace((*object.BaseObject)(unsafe.Pointer(i)))
+	return vm.replace((*object.BaseObject)(unsafe.Pointer(&i)))
 }
 
 func (vm *VM) executeBinOpFloat(op code.Opcode, left, right *object.BaseObject) error {
