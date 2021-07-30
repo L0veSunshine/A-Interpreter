@@ -40,8 +40,9 @@ func (f Float) Inspect() string {
 	var s string
 	if f.Value > 10e12 {
 		s = strconv.FormatFloat(f.Value, 'e', 12, 64)
+	} else {
+		s = strconv.FormatFloat(f.Value, 'f', -1, 64)
 	}
-	s = strconv.FormatFloat(f.Value, 'f', -1, 64)
 	return s
 }
 
