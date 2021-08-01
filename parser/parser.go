@@ -68,7 +68,7 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regInfixFn(tokens.Or, p.parseInfixExpr)
 
 	p.regInfixFn(tokens.LParen, p.parseCallFunc)
-	p.regInfixFn(tokens.LBRACKET, p.parseIndex)
+	p.regInfixFn(tokens.LBRACKET, p.parseIndexInfix)
 
 	p.next()
 	p.next()
@@ -134,6 +134,8 @@ func (p *Parser) parseStatement() ast.Statement {
 			return p.parseAssignStatement()
 		case p.peekToken.Type == tokens.LParen:
 			return p.parseCallStatement()
+		case p.peekToken.Type == tokens.LBRACKET:
+			return p.parseExprAssign()
 		}
 		return p.parseExprStatement()
 	case tokens.Return:
@@ -209,7 +211,25 @@ func (p *Parser) parseCallStatement() ast.Statement {
 	token := p.curToken
 	args := p.parseExpressionList(tokens.LParen, tokens.RParen)
 	exp := ast.FuncCallExpr{Token: *token, Function: fn, Arguments: args}
+	p.eat(tokens.RParen)
 	return ast.ExprStatement{Expression: exp}
+}
+
+func (p *Parser) parseExprAssign() ast.Statement {
+	token := p.curToken
+	exp := p.parseIdentifier()
+	p.next()
+	indexExpr := p.parseIndex(exp)
+	p.eat(tokens.RBRACKET) // skip ]
+	p.eat(tokens.Assign)
+	newExp := p.parseExpr(LOWEST)
+	p.next()
+	return ast.ExpressionAssign{
+		Token: *token,
+		Old:   indexExpr.Left,
+		Key:   indexExpr.Index,
+		New:   newExp,
+	}
 }
 
 func (p *Parser) parseExprStatement() ast.Statement {
@@ -229,8 +249,10 @@ func (p *Parser) parseFuncStatement() ast.FuncStatement {
 func (p *Parser) parseExpr(precedence int) ast.Expression {
 	prefix := p.prefixFns[p.curToken.Type]
 	if prefix == nil {
-		p.NewErrorF("no prefix parse function for %s",
-			p.curToken.Str())
+		if !p.curToken.IsEOF() {
+			p.NewErrorF("no prefix parse function for %s",
+				p.curToken.Str())
+		}
 		return nil
 	}
 	left := prefix()
@@ -453,7 +475,6 @@ func (p *Parser) parseExpressionList(start, end string) []ast.Expression {
 	var args []ast.Expression
 	p.eat(start)
 	if p.curToken.Type == end {
-		p.eat(end)
 		return args
 	}
 	arg := p.parseExpr(LOWEST)
@@ -488,7 +509,11 @@ func (p *Parser) parseArray() ast.Expression {
 	}
 }
 
-func (p *Parser) parseIndex(left ast.Expression) ast.Expression {
+func (p *Parser) parseIndexInfix(left ast.Expression) ast.Expression {
+	return p.parseIndex(left)
+}
+
+func (p *Parser) parseIndex(left ast.Expression) ast.IndexExpression {
 	token := p.curToken    // [
 	p.eat(tokens.LBRACKET) //skip [
 	var arg1 ast.Expression
@@ -517,7 +542,6 @@ func (p *Parser) parseIndex(left ast.Expression) ast.Expression {
 	default:
 		p.NewErrorF(`Slice need ":" as break but not %s`, p.curToken.Literal)
 	}
-	p.next() // skip ]
 	return ie
 }
 

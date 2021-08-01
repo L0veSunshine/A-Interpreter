@@ -212,11 +212,17 @@ return tx/2+G/10
 }
 var to=10
 print(to+f3())
+var tq1=f3()*2
+print(tq1)
 `
 
-var s22 = `var s2=[1,2,3,5,6,10-9,12,15,18][6:1:-1]
-var s3="这是一段测试文字"[6:1:-2]
-print(s3)`
+var s22 = `
+var a=[1,2,3,5,6,10-9,12,15,18]
+var b=[1,23,3]
+var t=[1,2,3,5,6,10-9,12,15,18][1]
+a[4]=99
+print()
+`
 
 var s23 = `
 var s=0
@@ -228,7 +234,7 @@ s=s+1
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s22)
+	lex := lexer.NewLexer(s21)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
@@ -248,7 +254,8 @@ func TestParser_Parse(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
+	var a = `[0;31m`
+	fmt.Println(a + "Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
 	fmt.Println("Run Time:" + strconv.FormatFloat(time.Since(st1).Seconds(), 'f', -1, 32))
 }
 func BenchmarkExec(b *testing.B) {

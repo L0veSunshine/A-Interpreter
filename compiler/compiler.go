@@ -268,6 +268,13 @@ func (c *Compiler) compile(node ast.Node) {
 			c.compile(arg)
 		}
 		c.emit(code.OpCallFunc, len(node.Arguments))
+	case ast.ExpressionAssign:
+		c.compile(node.New)
+		c.compile(node.Old)
+		c.compile(node.Key)
+		c.emit(code.OpArrayUpdate)
+		s, _ := c.symTable.Resolve(node.Old.TokenLiteral())
+		c.updateScope(s)
 	default:
 		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
 	}

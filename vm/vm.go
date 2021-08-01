@@ -88,6 +88,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	var ip int
 	var ins code.Instructions
 	var op code.Opcode
+	var varIdx uint16
 
 	vm.frames[0] = NewFrame(bytecode.Instruction, vm.globals, 0)
 	vm.constants = bytecode.Constants
@@ -158,20 +159,20 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 				vm.currentFrame().ip = pos - 1
 			}
 		case code.OpSetGlobal:
-			globalIdx := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpSetGlobal
-			vm.frames[0].vars[globalIdx] = vm.pop()
+			vm.frames[0].vars[varIdx] = vm.pop()
 		case code.OpGetGlobal:
-			globalIdx := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpGetGlobal
-			err := vm.push(vm.frames[0].vars[globalIdx])
+			err := vm.push(vm.frames[0].vars[varIdx])
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateGlobal:
-			globalIdx := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
-			vm.frames[0].vars[globalIdx] = vm.top()
+			vm.frames[0].vars[varIdx] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}
@@ -200,20 +201,20 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 				return err
 			}
 		case code.OpSetLocal:
-			localIndex := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			vm.currentFrame().vars[localIndex] = vm.pop()
+			vm.currentFrame().vars[varIdx] = vm.pop()
 		case code.OpGetLocal:
-			localIndex := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			err := vm.push(vm.currentFrame().vars[localIndex])
+			err := vm.push(vm.currentFrame().vars[varIdx])
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateLocal:
-			localIndex := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			vm.currentFrame().vars[localIndex] = vm.top()
+			vm.currentFrame().vars[varIdx] = vm.top()
 			if vm.sp > 1 {
 				vm.sp--
 			}
@@ -256,6 +257,11 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			}
 		case code.OpIndexArray:
 			err := vm.applyIndex()
+			if err != nil {
+				return err
+			}
+		case code.OpArrayUpdate:
+			err := vm.arrayUpdate()
 			if err != nil {
 				return err
 			}
@@ -521,7 +527,7 @@ func (vm *VM) integerIndex(idx int) error {
 	case object.String:
 		maxLen := len(obj.Value) - 1
 		if idx > maxLen {
-			idx = maxLen
+			return fmt.Errorf("%s index out of range", obj.Type())
 		} else if idx < 0 {
 			idx = maxLen + 1 + idx
 			if idx < 0 {
@@ -602,6 +608,38 @@ func (vm *VM) handleSlice(s object.Slice, maxLen int) (start, end, step int) {
 		step = 1
 	}
 	return
+}
+
+func (vm *VM) arrayUpdate() error {
+	key := vm.pop()
+	idx, ok := key.(object.Int)
+	if !ok {
+		return fmt.Errorf("error index %s", key.Inspect())
+	}
+	idxI := idx.Value
+	array := vm.pop()
+	target := vm.pop()
+	var newArray []object.Object
+	switch array := array.(type) {
+	case object.Array:
+		length := len(array.Elements)
+		newArray = array.Elements
+		if idxI < 0 {
+			idxI = idxI + length
+		}
+		if idxI < 0 || idxI >= len(array.Elements) {
+			return fmt.Errorf("list assignment index out of range")
+		}
+		newArray[idxI] = target
+
+	default:
+		return fmt.Errorf("type %s don't support set", array.Type())
+	}
+	err := vm.push(object.Array{Elements: newArray})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (vm *VM) currentFrame() *Frame {

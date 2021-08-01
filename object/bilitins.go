@@ -1,6 +1,9 @@
 package object
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type BuiltinFn struct {
 	Name    string
@@ -11,9 +14,15 @@ var BuiltinFns = []BuiltinFn{
 	{
 		"print",
 		Builtin{Fn: func(args ...Object) Object {
-			for _, arg := range args {
-				fmt.Println(arg.Inspect())
+			var sb strings.Builder
+			for idx, arg := range args {
+				if idx == len(args)-1 {
+					sb.WriteString(arg.Inspect())
+				} else {
+					sb.WriteString(arg.Inspect() + " ")
+				}
 			}
+			fmt.Println(sb.String())
 			return nil
 		},
 		},

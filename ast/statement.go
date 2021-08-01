@@ -141,3 +141,17 @@ func (bs BlockStatement) Str() string {
 	sb.WriteString("}")
 	return sb.String()
 }
+
+type ExpressionAssign struct {
+	Token         tokens.Token
+	Old, Key, New Expression
+}
+
+func (ea ExpressionAssign) StatementNode() {}
+func (ea ExpressionAssign) TokenLiteral() string {
+	return ea.Token.Literal
+}
+
+func (ea ExpressionAssign) Str() string {
+	return ea.Old.Str() + "[" + ea.Key.Str() + "] = " + ea.New.Str()
+}
