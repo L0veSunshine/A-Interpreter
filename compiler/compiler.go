@@ -90,7 +90,7 @@ func (c *Compiler) compile(node ast.Node) {
 		consIdx := c.constants.AddObj(numObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.StringNode:
-		strObj := object.String{Value: node.Value}
+		strObj := object.String{Value: []rune(node.Value)}
 		consIdx := c.constants.AddObj(strObj)
 		c.emit(code.OpConstant, consIdx)
 	case ast.BooleanNode:
@@ -236,6 +236,32 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.ReturnStatement:
 		c.compile(node.ReturnVal)
 		c.emit(code.OpReturnVal)
+	case ast.Array:
+		for _, e := range node.Elements {
+			c.compile(e)
+		}
+		c.emit(code.OpBuildArray, len(node.Elements))
+	case ast.IndexSlice:
+		if node.Start != nil {
+			c.compile(node.Start)
+		} else {
+			c.emit(code.OpNull)
+		}
+		if node.End != nil {
+			c.compile(node.End)
+		} else {
+			c.emit(code.OpNull)
+		}
+		if node.Step != nil {
+			c.compile(node.Step)
+		} else {
+			c.emit(code.OpNull)
+		}
+		c.emit(code.OpMakeSlice)
+	case ast.IndexExpression:
+		c.compile(node.Left)
+		c.compile(node.Index)
+		c.emit(code.OpIndexArray)
 	case ast.FuncCallExpr:
 		c.compile(node.Function)
 		for _, arg := range node.Arguments {

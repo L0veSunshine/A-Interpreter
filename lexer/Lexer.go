@@ -3,14 +3,13 @@ package lexer
 import (
 	"Interpreter/errors"
 	"Interpreter/tokens"
-	"Interpreter/utils"
 )
 
 type Lexer struct {
 	rs  []rune
 	pos int
 	Loc *tokens.Locate
-	cur *utils.Char
+	cur *Char
 	*errors.Errors
 }
 
@@ -23,7 +22,7 @@ func NewLexer(text string) *Lexer {
 			Line:   1,
 		},
 	}
-	l.cur = utils.Code(l.rs[l.pos])
+	l.cur = Code(l.rs[l.pos])
 	return l
 }
 
@@ -41,13 +40,13 @@ func (l *Lexer) advance(step int) {
 	l.pos += step
 	l.Loc.Column += step
 	if l.pos >= len(l.rs) {
-		l.cur = utils.Code(0)
+		l.cur = Code(0)
 	} else {
 		if l.cur.Equal("\n") {
 			l.Loc.Column = 1
 			l.Loc.Line += 1
 		}
-		l.cur = utils.Code(l.rs[l.pos])
+		l.cur = Code(l.rs[l.pos])
 	}
 }
 
@@ -65,12 +64,12 @@ func (l *Lexer) skipComment() {
 	l.advance(1)
 }
 
-func (l *Lexer) peek() *utils.Char {
+func (l *Lexer) peek() *Char {
 	peekPos := l.pos + 1
 	if peekPos >= len(l.rs) {
-		return utils.Code(0)
+		return Code(0)
 	} else {
-		return utils.Code(l.rs[peekPos])
+		return Code(l.rs[peekPos])
 	}
 }
 
@@ -199,6 +198,12 @@ LOOP:
 	case l.cur.Equal("("):
 		l.advance(1)
 		return tokens.NToken(tokens.LParen, "(", loc)
+	case l.cur.Equal("["):
+		l.advance(1)
+		return tokens.NToken(tokens.LBRACKET, "[", loc)
+	case l.cur.Equal("]"):
+		l.advance(1)
+		return tokens.NToken(tokens.RBRACKET, "]", loc)
 	case l.cur.Equal(")"):
 		l.advance(1)
 		return tokens.NToken(tokens.RParen, ")", loc)

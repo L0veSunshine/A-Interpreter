@@ -4,6 +4,7 @@ import (
 	"Interpreter/code"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type BuiltinFunction func(args ...Object) Object
@@ -60,7 +61,7 @@ func (b Boolean) Inspect() string {
 }
 
 type String struct {
-	Value string
+	Value []rune
 }
 
 func (s String) Type() ObjType {
@@ -68,7 +69,7 @@ func (s String) Type() ObjType {
 }
 
 func (s String) Inspect() string {
-	return s.Value
+	return string(s.Value)
 }
 
 type Null struct {
@@ -108,4 +109,41 @@ func (cf CompiledFunc) Type() ObjType {
 
 func (cf CompiledFunc) Inspect() string {
 	return fmt.Sprintf("CompiledFunc[%p]", &cf)
+}
+
+type Array struct {
+	Elements []Object
+}
+
+func (a Array) Type() ObjType {
+	return ArrayObj
+}
+
+func (a Array) Inspect() string {
+	var sb strings.Builder
+	if len(a.Elements) > 0 {
+		sb.WriteString("[")
+		for i := 0; i < len(a.Elements)-1; i++ {
+			sb.WriteString(a.Elements[i].Inspect() + ", ")
+		}
+		sb.WriteString(a.Elements[len(a.Elements)-1].Inspect() + "]")
+		return sb.String()
+	}
+	return "[]"
+}
+
+type Slice struct {
+	Start, End, Step Object
+}
+
+func (s Slice) Type() ObjType {
+	return SliceObj
+}
+
+func (s Slice) Inspect() string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	sb.WriteString(s.Start.Inspect() + ":" + s.End.Inspect() + ":" + s.Step.Inspect())
+	sb.WriteString("]")
+	return sb.String()
 }

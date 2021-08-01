@@ -50,6 +50,7 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regPrefixFn(tokens.If, p.parseIfExpression)
 	p.regPrefixFn(tokens.For, p.parseForExpr)
 	p.regPrefixFn(tokens.Func, p.parseFuncDef)
+	p.regPrefixFn(tokens.LBRACKET, p.parseArray)
 
 	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
@@ -67,6 +68,7 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regInfixFn(tokens.Or, p.parseInfixExpr)
 
 	p.regInfixFn(tokens.LParen, p.parseCallFunc)
+	p.regInfixFn(tokens.LBRACKET, p.parseIndex)
 
 	p.next()
 	p.next()
@@ -205,7 +207,7 @@ func (p *Parser) parseCallStatement() ast.Statement {
 	fn := p.parseIdentifier()
 	p.next()
 	token := p.curToken
-	args := p.parseCallArgs()
+	args := p.parseExpressionList(tokens.LParen, tokens.RParen)
 	exp := ast.FuncCallExpr{Token: *token, Function: fn, Arguments: args}
 	return ast.ExprStatement{Expression: exp}
 }
@@ -447,11 +449,11 @@ func (p *Parser) parseFuncDef() ast.Expression {
 	}
 }
 
-func (p *Parser) parseCallArgs() []ast.Expression {
+func (p *Parser) parseExpressionList(start, end string) []ast.Expression {
 	var args []ast.Expression
-	p.eat(tokens.LParen)
-	if p.curToken.Type == tokens.RParen {
-		p.eat(tokens.RParen)
+	p.eat(start)
+	if p.curToken.Type == end {
+		p.eat(end)
 		return args
 	}
 	arg := p.parseExpr(LOWEST)
@@ -467,14 +469,82 @@ func (p *Parser) parseCallArgs() []ast.Expression {
 }
 
 func (p *Parser) parseCallFunc(function ast.Expression) ast.Expression {
-	token := p.curToken
-	args := p.parseCallArgs()
+	token := p.curToken // (
+	args := p.parseExpressionList(tokens.LParen, tokens.RParen)
 	expr := ast.FuncCallExpr{
 		Token:     *token,
 		Function:  function,
 		Arguments: args,
 	}
 	return expr
+}
+
+func (p *Parser) parseArray() ast.Expression {
+	token := p.curToken
+	args := p.parseExpressionList(tokens.LBRACKET, tokens.RBRACKET)
+	return ast.Array{
+		Token:    *token,
+		Elements: args,
+	}
+}
+
+func (p *Parser) parseIndex(left ast.Expression) ast.Expression {
+	token := p.curToken    // [
+	p.eat(tokens.LBRACKET) //skip [
+	var arg1 ast.Expression
+	if p.curToken.Type != tokens.Colon {
+		arg1 = p.parseExpr(LOWEST)
+		p.next()
+	} else {
+		arg1 = nil
+	}
+	ie := ast.IndexExpression{
+		Token: *token,
+		Left:  left,
+	}
+	switch p.curToken.Type {
+	case tokens.RBRACKET:
+		ie.Index = arg1
+	case tokens.Colon:
+		if p.peekToken.Type == tokens.RBRACKET {
+			slice := ast.IndexSlice{}
+			ie.Index = slice
+		} else {
+			slice := p.parseSlice()
+			slice.Start = arg1
+			ie.Index = slice
+		}
+	default:
+		p.NewErrorF(`Slice need ":" as break but not %s`, p.curToken.Literal)
+	}
+	p.next() // skip ]
+	return ie
+}
+
+func (p *Parser) parseSlice() ast.IndexSlice {
+	slice := ast.IndexSlice{} //current token :
+	if p.peekToken.Type != tokens.Colon {
+		p.eat(tokens.Colon)
+		slice.End = p.parseExpr(LOWEST)
+	} else {
+		slice.End = nil
+	}
+	p.next()
+	if p.curToken.Type == tokens.RBRACKET {
+		return slice
+	} else {
+		if p.peekToken.Type != tokens.RBRACKET {
+			p.eat(tokens.Colon)
+			slice.Step = p.parseExpr(LOWEST)
+		} else {
+			slice.Step = nil
+		}
+		p.next()
+		if p.curToken.Type == tokens.RBRACKET {
+			return slice
+		}
+	}
+	return slice
 }
 
 func (p *Parser) parseGroupedExpr() ast.Expression {

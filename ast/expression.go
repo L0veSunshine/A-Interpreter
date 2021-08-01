@@ -196,3 +196,76 @@ func (fc FuncCallExpr) Str() string {
 	sb.WriteString("(" + strings.Join(args, ",") + ")")
 	return sb.String()
 }
+
+type Array struct {
+	Token    tokens.Token
+	Elements []Expression
+}
+
+func (a Array) expressionNode() {}
+func (a Array) TokenLiteral() string {
+	return a.Token.Literal
+}
+
+func (a Array) Str() string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	if len(a.Elements) > 0 {
+		for i := 0; i < len(a.Elements)-1; i++ {
+			sb.WriteString(a.Elements[i].Str() + ",")
+		}
+		sb.WriteString(a.Elements[len(a.Elements)-1].Str())
+		sb.WriteString("]")
+		return sb.String()
+	}
+	return "[]"
+}
+
+type IndexSlice struct {
+	Start, End, Step Expression
+}
+
+func (is IndexSlice) expressionNode() {}
+func (is IndexSlice) TokenLiteral() string {
+	return ""
+}
+
+func (is IndexSlice) Str() string {
+	var sb strings.Builder
+	var start, end, step string
+	if is.Start != nil {
+		start = is.Start.Str()
+	} else {
+		start = ""
+	}
+	if is.End != nil {
+		end = is.End.Str()
+	} else {
+		end = ""
+	}
+	if is.Step != nil {
+		step = is.Step.Str()
+	} else {
+		step = ""
+	}
+	sb.WriteString(start + ":" + end + ":" + step)
+	return sb.String()
+}
+
+type IndexExpression struct {
+	Token tokens.Token
+	Left,
+	Index Expression
+}
+
+func (i IndexExpression) expressionNode() {}
+func (i IndexExpression) TokenLiteral() string {
+	return i.Token.Literal
+}
+
+func (i IndexExpression) Str() string {
+	var sb strings.Builder
+	sb.WriteString(i.Left.Str())
+	sb.WriteString("[" + i.Index.Str() + "]")
+	return sb.String()
+}

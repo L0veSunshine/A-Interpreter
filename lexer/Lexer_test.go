@@ -30,8 +30,8 @@ func TestLexer_str(t *testing.T) {
 var a=1
 if (a==1){
 return a+1}else{
-return abv !=  !  >=  <= ==}`
+return abv !=  and  >=  <= ==} [1,2,3]`
 	l := NewLexer(s)
-	fmt.Println(l.Array())
+	fmt.Println(l.Array()[len(l.Array())-1])
 	fmt.Println(l.Errs())
 }

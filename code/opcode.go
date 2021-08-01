@@ -47,6 +47,11 @@ const (
 
 	OpGetBuiltin
 
+	OpBuildArray
+	OpMakeSlice
+
+	OpIndexArray
+
 	OpCallFunc
 	OpClosure
 )

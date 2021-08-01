@@ -28,19 +28,21 @@ const (
 	Or  = "Or"
 	Not = "Not"
 
-	LParen = "LParen" // (
-	RParen = "RParen" // )
-	LBRACE = "LBRACE" // {
-	RBRACE = "RBRACE" // }
-	Var    = "Var"
-	For    = "For"
-	True   = "True"
-	False  = "False"
-	If     = "If"
-	Else   = "Else"
-	Func   = "Func"
-	Return = "Return"
-	Assign = "Assign"
+	LParen   = "LParen"   // (
+	RParen   = "RParen"   // )
+	LBRACE   = "LBRACE"   // {
+	RBRACE   = "RBRACE"   // }
+	LBRACKET = "LBRACKET" // [
+	RBRACKET = "RBRACKET" // ]
+	Var      = "Var"
+	For      = "For"
+	True     = "True"
+	False    = "False"
+	If       = "If"
+	Else     = "Else"
+	Func     = "Func"
+	Return   = "Return"
+	Assign   = "Assign"
 
 	Ident = "Ident"
 

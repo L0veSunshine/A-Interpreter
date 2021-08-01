@@ -214,15 +214,21 @@ var to=10
 print(to+f3())
 `
 
-var s22 = `
-def add1(x){
-return x+1
-}
-print(add1(10))`
+var s22 = `var s2=[1,2,3,5,6,10-9,12,15,18][6:1:-1]
+var s3="这是一段测试文字"[6:1:-2]
+print(s3)`
+
+var s23 = `
+var s=0
+var s3=""
+for(s<100000000){
+s3="这是一段测试文字"[5]
+s=s+1
+}`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s18)
+	lex := lexer.NewLexer(s22)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()

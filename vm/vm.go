@@ -232,6 +232,33 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
+		case code.OpBuildArray:
+			gap := code.ReadUint16(ins[ip+1:])
+			vm.currentFrame().ip += 2
+			var ele []object.Object
+			for i := vm.sp - int(gap); i < vm.sp; i++ {
+				ele = append(ele, vm.stack[i])
+			}
+			vm.sp -= int(gap) //栈指针归位
+			err := vm.push(object.Array{Elements: ele})
+			if err != nil {
+				return err
+			}
+		case code.OpMakeSlice:
+			sliceObj := object.Slice{}
+			sliceObj.Start = vm.stack[vm.sp-3]
+			sliceObj.End = vm.stack[vm.sp-2]
+			sliceObj.Step = vm.stack[vm.sp-1]
+			vm.sp -= 3
+			err := vm.push(sliceObj)
+			if err != nil {
+				return err
+			}
+		case code.OpIndexArray:
+			err := vm.applyIndex()
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -422,7 +449,7 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 	leftVal = left.Inspect()
 	rightVal = right.Inspect()
 	if op == code.OpAdd {
-		return vm.replace(object.String{Value: leftVal + rightVal})
+		return vm.replace(object.String{Value: []rune(leftVal + rightVal)})
 	} else {
 		return fmt.Errorf("unknown operator %d for str", op)
 	}
@@ -461,6 +488,120 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 		return vm.replace(nativeBoolToBool(value))
 	}
 	return fmt.Errorf("unsupported type for negation: %s", token.Type())
+}
+
+func (vm *VM) applyIndex() error {
+	ident := vm.pop()
+	switch ident.Type() {
+	case object.IntObj:
+		return vm.integerIndex(ident.(object.Int).Value)
+	case object.SliceObj:
+		return vm.sliceIndex(ident.(object.Slice))
+	}
+	return fmt.Errorf("unsupported type for index: %s", ident.Type())
+}
+
+func (vm *VM) integerIndex(idx int) error {
+	obj := vm.top()
+	switch obj := obj.(type) {
+	case object.Array:
+		maxLen := len(obj.Elements) - 1
+		if idx > maxLen {
+			return fmt.Errorf("%s index out of range", obj.Type())
+		} else if idx < 0 {
+			idx = maxLen + 1 + idx
+			if idx < 0 {
+				idx = 0
+			}
+		}
+		err := vm.replace(obj.Elements[idx])
+		if err != nil {
+			return err
+		}
+	case object.String:
+		maxLen := len(obj.Value) - 1
+		if idx > maxLen {
+			idx = maxLen
+		} else if idx < 0 {
+			idx = maxLen + 1 + idx
+			if idx < 0 {
+				idx = 0
+			}
+		}
+		err := vm.replace(object.String{Value: []rune{obj.Value[idx]}})
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%s object is not subscriptable", obj.Type())
+	}
+	return nil
+}
+
+func (vm *VM) sliceIndex(s object.Slice) error {
+	obj := vm.top()
+	var start, end, step int
+	switch obj := obj.(type) {
+	case object.Array:
+		start, end, step = vm.handleSlice(s, len(obj.Elements))
+		var newArr []object.Object
+		if step > 0 {
+			for ; start < end; start += step {
+				newArr = append(newArr, obj.Elements[start])
+			}
+		} else {
+			for ; start > end; start += step {
+				newArr = append(newArr, obj.Elements[start])
+			}
+		}
+		err := vm.replace(object.Array{Elements: newArr})
+		if err != nil {
+			return err
+		}
+	case object.String:
+		start, end, step = vm.handleSlice(s, len(obj.Value))
+		var newStr []rune
+		if step > 0 {
+			for ; start < end; start += step {
+				newStr = append(newStr, obj.Value[start])
+			}
+		} else {
+			for ; start > end; start += step {
+				newStr = append(newStr, obj.Value[start])
+			}
+		}
+		err := vm.replace(object.String{Value: newStr})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (vm *VM) handleSlice(s object.Slice, maxLen int) (start, end, step int) {
+	if s.Start.Type() != object.NullObj {
+		start = s.Start.(object.Int).Value
+	} else {
+		start = 0
+	}
+	if s.End.Type() != object.NullObj {
+		end = s.End.(object.Int).Value
+		if end < 0 {
+			end = maxLen + 1 + end
+		}
+	} else {
+		end = maxLen
+	}
+	if s.Step.Type() != object.NullObj {
+		step = s.Step.(object.Int).Value
+		if step < 0 && end == maxLen && start == 0 {
+			start = maxLen - 1
+			end = -1
+		}
+	} else {
+		step = 1
+	}
+	return
 }
 
 func (vm *VM) currentFrame() *Frame {

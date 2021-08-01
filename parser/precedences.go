@@ -15,7 +15,8 @@ const (
 	POW       //**
 	PREFIX    // -x,!x
 	COMPARE   // and,or,not
-	CALL
+	CALL      //()
+	Index     //[]
 )
 
 type (
@@ -24,19 +25,20 @@ type (
 )
 
 var precedences = map[string]int{
-	tokens.Plus:   SUM,
-	tokens.Minus:  SUM,
-	tokens.Mul:    PRODUCT,
-	tokens.Div:    PRODUCT,
-	tokens.Mod:    POW,
-	tokens.Pow:    POW,
-	tokens.LParen: CALL,
-	tokens.Equal:  Eq,
-	tokens.LT:     GreatLess,
-	tokens.GT:     GreatLess,
-	tokens.LTEq:   GreatLess,
-	tokens.GTEq:   GreatLess,
-	tokens.And:    COMPARE,
-	tokens.Or:     COMPARE,
-	tokens.Not:    COMPARE,
+	tokens.Plus:     SUM,
+	tokens.Minus:    SUM,
+	tokens.Mul:      PRODUCT,
+	tokens.Div:      PRODUCT,
+	tokens.Mod:      POW,
+	tokens.Pow:      POW,
+	tokens.LParen:   CALL,
+	tokens.Equal:    Eq,
+	tokens.LT:       GreatLess,
+	tokens.GT:       GreatLess,
+	tokens.LTEq:     GreatLess,
+	tokens.GTEq:     GreatLess,
+	tokens.And:      COMPARE,
+	tokens.Or:       COMPARE,
+	tokens.Not:      COMPARE,
+	tokens.LBRACKET: Index,
 }
