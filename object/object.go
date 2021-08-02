@@ -191,7 +191,6 @@ func (m Map) Inspect() string {
 			idx += 1
 		}
 	}
-	fmt.Println(m)
 	sb.WriteString("}")
 	return sb.String()
 }
