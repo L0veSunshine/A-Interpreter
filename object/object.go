@@ -2,6 +2,7 @@ package object
 
 import (
 	"Interpreter/code"
+	"Interpreter/format"
 	"fmt"
 	"strconv"
 	"strings"
@@ -191,6 +192,19 @@ func (m Map) Inspect() string {
 			idx += 1
 		}
 	}
+	fmt.Println(len(m.Store))
 	sb.WriteString("}")
 	return sb.String()
+}
+
+type Error struct {
+	ErrorMsg string
+}
+
+func (e Error) Type() ObjType {
+	return ErrorObj
+}
+
+func (e Error) Inspect() string {
+	return format.Error + "Error: " + e.ErrorMsg
 }

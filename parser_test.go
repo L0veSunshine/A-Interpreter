@@ -227,13 +227,15 @@ print()
 var s23 = `
 var a={1:2,"1":"22","432":1232+2}
 a[1]=9
-a["12"]="12311"
-print(a)
+a["432"]="12311"
+print(len("11,23"))
+print(float("1112.11"))
+print("1"=="1")
 `
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s22)
+	lex := lexer.NewLexer(s18)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()

@@ -3,6 +3,7 @@ package vm
 import (
 	"Interpreter/bytecode"
 	"Interpreter/code"
+	"Interpreter/format"
 	"Interpreter/object"
 	"Interpreter/utils"
 	"errors"
@@ -16,12 +17,11 @@ const (
 	StackSize  = 2048
 	GlobalSize = 65536
 	MaxFrame   = 1024
-	Alert      = "\u001B[0;31m"
 )
 
 var (
-	StackOverErr = fmt.Errorf(Alert + "stack overflow")
-	StackIdxErr  = fmt.Errorf(Alert + "invalid index")
+	StackOverErr = fmt.Errorf(format.Alert + "stack overflow")
+	StackIdxErr  = fmt.Errorf(format.Alert + "invalid index")
 	NullObj      = object.Null{}
 )
 
@@ -223,8 +223,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpGetBuiltin:
 			builtinIdx := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip += 1
-			def := object.BuiltinFns[builtinIdx]
-			err := vm.push(def.Builtin)
+			err := vm.push(object.BuiltinFns[builtinIdx].Builtin)
 			if err != nil {
 				return err
 			}
@@ -290,7 +289,7 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
 		return vm.executeBinOpFloat(op, left, right)
 	}
-	return fmt.Errorf(Alert+"unsupported types for binary operation: %s(%s) %s(%s) %s",
+	return fmt.Errorf(format.Alert+"unsupported types for binary operation: %s(%s) %s(%s) %s",
 		left.Type(), left.Inspect(), right.Type(), right.Inspect(), code.Definitions[op].Name)
 }
 
@@ -301,16 +300,10 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 		(right.Type() == object.IntObj || right.Type() == object.FloatObj) {
 		return vm.compareNumObj(op, left, right)
 	}
-	var res bool
-	switch op {
-	case code.OpEqual:
-		res = left == right
-	case code.OpNotEQ:
-		res = left != right
-	default:
-		return fmt.Errorf(Alert+"unsupport operator for object: %d", op)
+	if left.Type() == object.StringObj && right.Type() == object.StringObj {
+		return vm.compareStringObj(op, left, right)
 	}
-	return vm.replace(nativeBoolToBool(res))
+	return vm.compareObj(op, left, right)
 }
 
 func (vm *VM) logicBinOp(op code.Opcode) error {
@@ -329,8 +322,35 @@ func (vm *VM) logicBinOp(op code.Opcode) error {
 		}
 		return vm.replace(nativeBoolToBool(res))
 	default:
-		return fmt.Errorf(Alert+"unsporrted type %s", right.Type())
+		return fmt.Errorf(format.Alert+"unsporrted type %s", right.Type())
 	}
+}
+func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
+	var res bool
+	switch op {
+	case code.OpEqual:
+		res = utils.Hash(left) == utils.Hash(right)
+	case code.OpNotEQ:
+		res = utils.Hash(left) != utils.Hash(right)
+	default:
+		return fmt.Errorf(format.Alert+"unsupport operator for object: %d", op)
+	}
+	return vm.replace(nativeBoolToBool(res))
+}
+
+func (vm *VM) compareStringObj(op code.Opcode, left, right object.Object) error {
+	var leftVal = string(left.(object.String).Value)
+	var rightVal = string(right.(object.String).Value)
+	var res bool
+	switch op {
+	case code.OpEqual:
+		res = leftVal == rightVal
+	case code.OpNotEQ:
+		res = leftVal != rightVal
+	default:
+		return fmt.Errorf(format.Alert+"unsupport operator for StringObj: %d", op)
+	}
+	return vm.replace(nativeBoolToBool(res))
 }
 
 func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
@@ -359,7 +379,7 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 	case code.OpGTEq:
 		res = leftVal >= rightVal
 	default:
-		return fmt.Errorf(Alert+"unsupport operator for NumberObj: %d", op)
+		return fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
 	}
 	return vm.replace(nativeBoolToBool(res))
 }
@@ -415,7 +435,7 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
 		return vm.replace(object.Float{Value: fRes})
 	default:
-		return fmt.Errorf(Alert+"unknown integer operator: %d", op)
+		return fmt.Errorf(format.Alert+"unknown integer operator: %d", op)
 	}
 	return vm.replace(object.Int{Value: res})
 }
@@ -447,14 +467,14 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 		if rightVal != 0 {
 			res = leftVal / rightVal
 		} else {
-			return fmt.Errorf(Alert + "division by zero")
+			return fmt.Errorf(format.Alert + "division by zero")
 		}
 	case code.OpMod:
 		res = math.Mod(leftVal, rightVal)
 	case code.OpPow:
 		res = math.Pow(leftVal, rightVal)
 	default:
-		return fmt.Errorf(Alert+"unknown operator %d for integer", op)
+		return fmt.Errorf(format.Alert+"unknown operator %d for integer", op)
 	}
 	return vm.replace(object.Float{Value: res})
 }
@@ -466,7 +486,7 @@ func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
 	if op == code.OpAdd {
 		return vm.replace(object.String{Value: []rune(leftVal + rightVal)})
 	} else {
-		return fmt.Errorf(Alert+"unknown operator %d for str", op)
+		return fmt.Errorf(format.Alert+"unknown operator %d for str", op)
 	}
 }
 
@@ -480,7 +500,7 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 			value = -value
 		case code.OpPlus:
 		default:
-			return fmt.Errorf(Alert+"unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
 		}
 		return vm.replace(object.Int{Value: value})
 	case object.FloatObj:
@@ -490,7 +510,7 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 			value = -value
 		case code.OpPlus:
 		default:
-			return fmt.Errorf(Alert+"unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
 		}
 		return vm.replace(object.Float{Value: value})
 	case object.BooleanObj:
@@ -498,11 +518,11 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 		if op == code.OpNot {
 			value = !value
 		} else {
-			return fmt.Errorf(Alert+"unkonwn opCode %s for %s", string(op), token.Type())
+			return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
 		}
 		return vm.replace(nativeBoolToBool(value))
 	}
-	return fmt.Errorf(Alert+"unsupported type for negation: %s", token.Type())
+	return fmt.Errorf(format.Alert+"unsupported type for negation: %s", token.Type())
 }
 
 func (vm *VM) applyIndex() error {
@@ -515,7 +535,7 @@ func (vm *VM) applyIndex() error {
 	case object.StringObj, object.FloatObj, object.BooleanObj:
 		return vm.mapIndex(utils.Hash(IdxIdent))
 	}
-	return fmt.Errorf(Alert+"unsupported type for index: %s", IdxIdent.Type())
+	return fmt.Errorf(format.Alert+"unsupported type for index: %s", IdxIdent.Type())
 }
 
 func (vm *VM) integerIndex(idx int) error {
@@ -524,7 +544,7 @@ func (vm *VM) integerIndex(idx int) error {
 	case object.Array:
 		maxLen := len(obj.Elements) - 1
 		if idx > maxLen {
-			return fmt.Errorf(Alert+"%s index out of range", obj.Type())
+			return fmt.Errorf(format.Alert+"%s index out of range", obj.Type())
 		} else if idx < 0 {
 			idx = maxLen + 1 + idx
 			if idx < 0 {
@@ -538,7 +558,7 @@ func (vm *VM) integerIndex(idx int) error {
 	case object.String:
 		maxLen := len(obj.Value) - 1
 		if idx > maxLen {
-			return fmt.Errorf(Alert+"%s index out of range", obj.Type())
+			return fmt.Errorf(format.Alert+"%s index out of range", obj.Type())
 		} else if idx < 0 {
 			idx = maxLen + 1 + idx
 			if idx < 0 {
@@ -556,7 +576,7 @@ func (vm *VM) integerIndex(idx int) error {
 			return err
 		}
 	default:
-		return fmt.Errorf(Alert+"%s object is not subscriptable", obj.Type())
+		return fmt.Errorf(format.Alert+"%s object is not subscriptable", obj.Type())
 	}
 	return nil
 }
@@ -564,7 +584,7 @@ func (vm *VM) integerIndex(idx int) error {
 func (vm *VM) mapIndex(hash int) error {
 	obj := vm.top()
 	if obj.Type() != object.MapObj {
-		return fmt.Errorf(Alert+"string can't index type %s", obj.Type())
+		return fmt.Errorf(format.Alert+"string can't index type %s", obj.Type())
 	}
 	mapObj := obj.(object.Map)
 	err := vm.replace(mapObj.Store[hash].Item)
@@ -650,7 +670,7 @@ func (vm *VM) arrayUpdate() error {
 	case object.Array:
 		idx, ok := key.(object.Int)
 		if !ok {
-			return fmt.Errorf(Alert+"error index %s", key.Inspect())
+			return fmt.Errorf(format.Alert+"error index %s", key.Inspect())
 		}
 		idxI = idx.Value
 		length := len(array.Elements)
@@ -659,7 +679,7 @@ func (vm *VM) arrayUpdate() error {
 			idxI = idxI + length
 		}
 		if idxI < 0 || idxI >= len(array.Elements) {
-			return fmt.Errorf(Alert + "list assignment index out of range")
+			return fmt.Errorf(format.Alert + "list assignment index out of range")
 		}
 		newArray[idxI] = target
 		err := vm.push(object.Array{Elements: newArray})
@@ -670,7 +690,7 @@ func (vm *VM) arrayUpdate() error {
 		idxI = utils.Hash(key)
 		p, ok := array.Store[idxI]
 		if !ok {
-			return fmt.Errorf(Alert+"key error: %s", key.Inspect())
+			return fmt.Errorf(format.Alert+"key error: %s", key.Inspect())
 		}
 		p.Item = target
 		array.Store[idxI] = p
@@ -679,7 +699,7 @@ func (vm *VM) arrayUpdate() error {
 			return err
 		}
 	default:
-		return fmt.Errorf(Alert+"type %s don't support setItem operation", array.Type())
+		return fmt.Errorf(format.Alert+"type %s don't support setItem operation", array.Type())
 	}
 
 	return nil
@@ -739,7 +759,7 @@ func (vm *VM) executeCall(numArgs int) error {
 	case object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
 	default:
-		return fmt.Errorf(Alert + "calling non-function and non-built-in")
+		return fmt.Errorf(format.Alert + "calling non-function and non-built-in")
 	}
 }
 
@@ -756,7 +776,7 @@ var frame Frame
 
 func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
-		return fmt.Errorf(Alert+"wrong number of arguments: want=%d, got=%d",
+		return fmt.Errorf(format.Alert+"wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
 	newVars := make([]object.Object, fn.LocalsNum)
