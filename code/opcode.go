@@ -49,9 +49,10 @@ const (
 
 	OpBuildArray
 	OpMakeSlice
+	OpMakeMap
 	OpArrayUpdate
 
-	OpIndexArray
+	OpIndex
 
 	OpCallFunc
 	OpClosure

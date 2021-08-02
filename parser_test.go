@@ -225,16 +225,15 @@ print()
 `
 
 var s23 = `
-var s=0
-var s3=""
-for(s<100000000){
-s3="这是一段测试文字"[5]
-s=s+1
-}`
+var a={1:2,"1":"22","432":1232+2}
+a[1]=9
+a["12"]="12311"
+print(a)
+`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s21)
+	lex := lexer.NewLexer(s22)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
@@ -254,8 +253,7 @@ func TestParser_Parse(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	var a = `[0;31m`
-	fmt.Println(a + "Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
+	fmt.Println("Compile Time:" + strconv.FormatFloat(st1.Sub(st).Seconds(), 'f', -1, 32))
 	fmt.Println("Run Time:" + strconv.FormatFloat(time.Since(st1).Seconds(), 'f', -1, 32))
 }
 func BenchmarkExec(b *testing.B) {

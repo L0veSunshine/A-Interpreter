@@ -261,13 +261,19 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.IndexExpression:
 		c.compile(node.Left)
 		c.compile(node.Index)
-		c.emit(code.OpIndexArray)
+		c.emit(code.OpIndex)
 	case ast.FuncCallExpr:
 		c.compile(node.Function)
 		for _, arg := range node.Arguments {
 			c.compile(arg)
 		}
 		c.emit(code.OpCallFunc, len(node.Arguments))
+	case ast.Map:
+		for i := 0; i < len(node.Keys); i++ {
+			c.compile(node.Keys[i])
+			c.compile(node.Items[i])
+		}
+		c.emit(code.OpMakeMap, len(node.Keys)*2)
 	case ast.ExpressionAssign:
 		c.compile(node.New)
 		c.compile(node.Old)

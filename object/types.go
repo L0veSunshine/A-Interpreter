@@ -14,4 +14,5 @@ const (
 
 	ArrayObj = "Array"
 	SliceObj = "Slice"
+	MapObj   = "Map"
 )

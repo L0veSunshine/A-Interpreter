@@ -51,6 +51,8 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regPrefixFn(tokens.For, p.parseForExpr)
 	p.regPrefixFn(tokens.Func, p.parseFuncDef)
 	p.regPrefixFn(tokens.LBRACKET, p.parseArray)
+	p.regPrefixFn(tokens.LBRACE, p.parseMap)
+	p.regPrefixFn(tokens.LF, p.skipLF)
 
 	p.regInfixFn(tokens.Minus, p.parseInfixExpr)
 	p.regInfixFn(tokens.Plus, p.parseInfixExpr)
@@ -80,10 +82,12 @@ func (p *Parser) next() {
 	p.peekToken = p.lex.NextToken()
 }
 
-func (p *Parser) eat(Type string) {
-	if p.curToken.Type == Type {
-		p.next()
-		return
+func (p *Parser) eat(Type ...string) {
+	for _, t := range Type {
+		if p.curToken.Type == t {
+			p.next()
+			return
+		}
 	}
 	p.NewErrorF("Want %s but get %s.(col%d,line%d)", Type, p.curToken.Type,
 		p.curToken.Loc.Column, p.curToken.Loc.Line)
@@ -96,10 +100,11 @@ func (p *Parser) find(Type string) bool {
 	return p.curToken.Type == Type
 }
 
-func (p *Parser) skipLF() {
+func (p *Parser) skipLF() ast.Expression {
 	for p.curToken.IsLF() {
 		p.next()
 	}
+	return nil
 }
 
 func (p *Parser) eatPeek(Type string) bool {
@@ -506,6 +511,35 @@ func (p *Parser) parseArray() ast.Expression {
 	return ast.Array{
 		Token:    *token,
 		Elements: args,
+	}
+}
+
+func (p *Parser) parseMap() ast.Expression {
+	token := p.curToken
+	var keys []ast.Expression
+	var items []ast.Expression
+	p.eat(tokens.LBRACE)
+	if p.curToken.Type == tokens.RBRACE {
+		return ast.Map{
+			Token: *token,
+			Keys:  keys,
+			Items: items,
+		}
+	}
+	for p.curToken.Type != tokens.RBRACE {
+		keys = append(keys, p.parseExpr(LOWEST))
+		p.next()
+		p.eat(tokens.Colon) //:
+		items = append(items, p.parseExpr(LOWEST))
+		p.next()
+		if p.curToken.Type == tokens.Comma {
+			p.eat(tokens.Comma) //skip
+		}
+	}
+	return ast.Map{
+		Token: *token,
+		Keys:  keys,
+		Items: items,
 	}
 }
 

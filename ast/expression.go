@@ -269,3 +269,28 @@ func (i IndexExpression) Str() string {
 	sb.WriteString("[" + i.Index.Str() + "]")
 	return sb.String()
 }
+
+type Map struct {
+	Token tokens.Token
+	Keys,
+	Items []Expression
+}
+
+func (m Map) expressionNode() {}
+func (m Map) TokenLiteral() string {
+	return m.Token.Literal
+}
+
+func (m Map) Str() string {
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i := 0; i < len(m.Keys); i++ {
+		if i == len(m.Keys)-1 {
+			sb.WriteString(m.Keys[i].Str() + ":" + m.Items[i].Str())
+		} else {
+			sb.WriteString(m.Keys[i].Str() + ":" + m.Items[i].Str() + ", ")
+		}
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
