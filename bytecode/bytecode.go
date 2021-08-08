@@ -72,14 +72,14 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 	case "OpConstant":
 		obj := b.Constants[idx]
 		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
-	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal":
+	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal",
+		"OpSetLocal", "OpGetLocal", "OpUpdateLocal":
 		if name, ok := b.Symbols.FindByIdx(idx); ok {
 			args = name
 		}
-	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal":
-		if name, ok := b.Symbols.FindByIdx(idx); ok {
-			args = name
-		}
+	case "OpLoadMethod":
+		name := b.Symbols.Methods.FindName(idx)
+		args += "(" + strconv.Quote(name) + ")"
 	case "OpClosure":
 		fn := b.Constants[idx].(object.CompiledFunc)
 		var argSb strings.Builder

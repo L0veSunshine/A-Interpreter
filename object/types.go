@@ -11,6 +11,7 @@ const (
 
 	BuiltinObj      = "Builtin"
 	CompiledFuncObj = "Compiled"
+	Method          = "Method"
 
 	ArrayObj = "Array"
 	SliceObj = "Slice"

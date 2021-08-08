@@ -5,11 +5,13 @@ import (
 	"Interpreter/errors"
 	"Interpreter/lexer"
 	"Interpreter/tokens"
+	"reflect"
 	"strconv"
 )
 
 type Parser struct {
 	lex *lexer.Lexer
+	prevToken,
 	curToken,
 	peekToken *tokens.Token
 	*errors.Errors
@@ -71,13 +73,20 @@ func NewParser(lex *lexer.Lexer) *Parser {
 
 	p.regInfixFn(tokens.LParen, p.parseCallFunc)
 	p.regInfixFn(tokens.LBRACKET, p.parseIndexInfix)
+	p.regInfixFn(tokens.Dot, p.parseMethodCall)
 
-	p.next()
+	p.init()
 	p.next()
 	return p
 }
 
+func (p *Parser) init() {
+	p.curToken = p.peekToken
+	p.peekToken = p.lex.NextToken()
+}
+
 func (p *Parser) next() {
+	p.prevToken = p.curToken
 	p.curToken = p.peekToken
 	p.peekToken = p.lex.NextToken()
 }
@@ -141,6 +150,8 @@ func (p *Parser) parseStatement() ast.Statement {
 			return p.parseCallStatement()
 		case p.peekToken.Type == tokens.LBRACKET:
 			return p.parseExprAssign()
+		case p.peekToken.Type == tokens.Dot:
+			return p.parseMethodCallStmt()
 		}
 		return p.parseExprStatement()
 	case tokens.Return:
@@ -157,7 +168,15 @@ func (p *Parser) parseStatement() ast.Statement {
 		}
 		return res
 	}
+}
 
+func (p *Parser) parseMethodCallStmt() ast.Statement {
+	token := p.curToken
+	expr := p.parseExpr(LOWEST)
+	return ast.MethodCallStmt{
+		Token: *token,
+		Call:  expr,
+	}
 }
 
 func (p *Parser) parseVarStatement() ast.Statement {
@@ -173,6 +192,13 @@ func (p *Parser) parseVarStatement() ast.Statement {
 	value := p.parseExpr(LOWEST)
 	if p.peekToken.IsLF() {
 		p.next()
+	}
+	if reflect.TypeOf(value).Name() == "MethodCall" {
+		return ast.VarMethodCall{
+			Token:  token,
+			Indent: ident,
+			Value:  value,
+		}
 	}
 	return ast.VarStatement{
 		Token:  token,
@@ -339,11 +365,62 @@ func (p *Parser) parseFloat() ast.Expression {
 }
 
 func (p *Parser) parseIdentifier() ast.Expression {
-	node := ast.IdentNode{
-		Token: *p.curToken,
-		Value: p.curToken.Literal,
+	var node ast.Expression
+	token := p.curToken
+	if p.prevToken.Type == tokens.Dot {
+		node = ast.MethodNode{
+			Token: *token,
+			Value: token.Literal,
+		}
+		p.SymTable.Methods.Add(token.Literal)
+	} else {
+		node = ast.IdentNode{
+			Token: *token,
+			Value: token.Literal,
+		}
 	}
 	return node
+}
+
+func (p *Parser) parseOneMethodCall() (
+	Methods ast.Expression, Args []ast.Expression) {
+	if p.curToken.Type == tokens.LParen {
+		p.next()
+	}
+	p.next() //skip .
+	Methods = p.parseIdentifier()
+	p.next()
+	if p.curToken.Type == tokens.LParen {
+		Args = p.parseExpressionList(tokens.LParen, tokens.RParen)
+	}
+	if p.curToken.Type != tokens.RParen {
+		p.NewErrorF("syntax error: Invalid parentheses")
+	}
+	if p.peekToken.Type == tokens.Dot {
+		p.eat(tokens.RParen)
+	}
+	return
+}
+
+func (p *Parser) parseMethodCall(left ast.Expression) ast.Expression {
+	token := p.curToken //.
+	call := ast.MethodCall{
+		Token: *token,
+		Left:  left,
+	}
+	var ms []ast.Expression
+	var args [][]ast.Expression
+	for p.curToken.Type == tokens.Dot {
+		msTmp, argsTmp := p.parseOneMethodCall()
+		ms = append(ms, msTmp)
+		args = append(args, argsTmp)
+	}
+	call.Methods = ms
+	call.Arguments = args
+	if p.peekToken.Type == tokens.LF {
+		p.next()
+	}
+	return call
 }
 
 func (p *Parser) parseString() ast.Expression {

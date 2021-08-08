@@ -51,6 +51,8 @@ var Definitions = map[Opcode]Definition{
 	OpMakeMap:      {"OpMakeMap", []int{2}},
 	OpGetBuiltin:   {"OpGetBuiltin", []int{1}},
 	OpCallFunc:     {"OpCallFunc", []int{1}},
+	OpCallMethod:   {"OpCallMethod", []int{1}},
+	OpLoadMethod:   {"OpLoadMethod", []int{2}},
 	OpClosure:      {"OpClosure", []int{1}},
 }
 

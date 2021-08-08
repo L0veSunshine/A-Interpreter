@@ -221,7 +221,7 @@ var a=[1,2,3,5,6,10-9,12,15,18]
 var b=[1,23,3]
 var t=[1,2,3,5,6,10-9,12,15,18][1]
 a[4]=99
-print()
+print(a)
 `
 
 var s23 = `
@@ -233,9 +233,48 @@ print(float("1112.11"))
 print("1"=="1")
 `
 
+var s24 = `
+var v=[1,2,3]
+print(v.pop()+10)
+print(v.pop())
+print(v.pop())
+`
+
+var s25 = `
+var a=1
+def foo(){
+a=2
+print(a)
+}
+foo()
+print(a)
+`
+var s26 = `
+var a=[1,2,3]
+var b=4
+print(a[b-2])`
+
+var s27 = `
+var b=[]
+var s=0
+for (s<20000){
+b.append(s)
+s=s+1
+}
+for (s>10000){
+b.pop()
+s=s-1
+}
+print(len(b))
+print(b.pop())
+print(b.pop())
+print(b.pop())
+b[1]=99999
+print(b)`
+
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s18)
+	lex := lexer.NewLexer(s27)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
@@ -245,7 +284,7 @@ func TestParser_Parse(t *testing.T) {
 		fmt.Println(p.Errs(), len(p.Errs()))
 	}
 	c := compiler.NewCompiler()
-	//c.SetMode()
+	////c.SetMode()
 	c.SetSymbol(p.SymTable)
 	c.Compile(ast)
 	c.Debug()

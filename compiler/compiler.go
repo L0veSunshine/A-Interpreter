@@ -179,8 +179,46 @@ func (c *Compiler) compile(node ast.Node) {
 		c.emit(code.OpJump, forStatPos)
 		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
+	case ast.MethodCall:
+		c.compile(node.Left)
+		for i, method := range node.Methods {
+			c.compile(method)
+			for _, args := range node.Arguments[i] {
+				c.compile(args)
+			}
+			c.emit(code.OpCallMethod, len(node.Arguments[i]))
+			if reflect.TypeOf(node.Left).Name() == "IdentNode" {
+				name := node.Left.(ast.IdentNode).Value
+				s, ok := c.symTable.Resolve(name)
+				if !ok {
+					c.NewErrorF("node name %s can't found.", name)
+				}
+				c.setScope(s)
+			} else {
+				c.emit(code.OpPop)
+			}
+		}
+	case ast.MethodCallStmt:
+		c.compile(node.Call)
+		c.emit(code.OpPop)
+	case ast.MethodNode:
+		s, ok := c.symTable.Methods.FindIdx(node.Value)
+		if !ok {
+			c.NewErrorF("can't find method %s.", strconv.Quote(node.Str()))
+		}
+		c.emit(code.OpLoadMethod, s)
 	case ast.VarStatement:
 		c.compile(node.Value)
+		s, ok := c.symTable.Resolve(node.Indent.Value)
+		if !ok {
+			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Indent.Value))
+		}
+		c.setScope(s)
+	case ast.VarMethodCall:
+		c.compile(node.Value)
+		if c.isLastIns(code.OpPop) {
+			c.removeLastOp()
+		}
 		s, ok := c.symTable.Resolve(node.Indent.Value)
 		if !ok {
 			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Indent.Value))
@@ -189,7 +227,7 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.IdentNode:
 		s, ok := c.symTable.Resolve(node.Value)
 		if !ok {
-			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Value))
+			c.NewErrorF("undefined Identifier %s.", strconv.Quote(node.Str()))
 		}
 		if s.Type == parser.F && s.ScopeType != parser.BuiltIn {
 			idx, ok := c.constants.Find(s.Name)
@@ -282,9 +320,10 @@ func (c *Compiler) compile(node ast.Node) {
 		s, _ := c.symTable.Resolve(node.Old.TokenLiteral())
 		c.updateScope(s)
 	default:
-		c.NewErrorF("unknown ast type %s", reflect.TypeOf(node).String())
+		c.NewErrorF("unknown ast type %s.", reflect.TypeOf(node).String())
 	}
 }
+
 func (c *Compiler) Compile(node ast.Node) {
 	c.compile(node)
 	c.handleNoCall()

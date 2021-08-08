@@ -51,6 +51,41 @@ func (vs VarStatement) Str() string {
 	return sb.String()
 }
 
+type VarMethodCall struct {
+	Token  tokens.Token // Var tokens
+	Indent IdentNode
+	Value  Expression
+}
+
+func (v VarMethodCall) StatementNode() {}
+func (v VarMethodCall) TokenLiteral() string {
+	return v.Token.Literal
+}
+
+func (v VarMethodCall) Str() string {
+	var sb strings.Builder
+	sb.WriteString(v.TokenLiteral() + " ")
+	sb.WriteString(v.Indent.Str() + " = ")
+	if v.Value != nil {
+		sb.WriteString(v.Value.Str() + " <Method>")
+	}
+	return sb.String()
+}
+
+type MethodCallStmt struct {
+	Token tokens.Token
+	Call  Expression
+}
+
+func (m MethodCallStmt) StatementNode() {}
+func (m MethodCallStmt) TokenLiteral() string {
+	return m.Token.Literal
+}
+
+func (m MethodCallStmt) Str() string {
+	return m.Call.Str()
+}
+
 type ReturnStatement struct {
 	Token     tokens.Token // Return tokens
 	ReturnVal Expression

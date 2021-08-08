@@ -81,6 +81,11 @@ func (i IdentNode) Str() string {
 	return i.Value
 }
 
+type MethodNode struct {
+	Token tokens.Token
+	Value string
+}
+
 type BooleanNode struct {
 	Token tokens.Token
 	Value bool
@@ -292,5 +297,46 @@ func (m Map) Str() string {
 		}
 	}
 	sb.WriteString("}")
+	return sb.String()
+}
+
+func (mn MethodNode) expressionNode() {}
+func (mn MethodNode) TokenLiteral() string {
+	return mn.Token.Literal
+}
+
+func (mn MethodNode) Str() string {
+	return mn.Value
+}
+
+type MethodCall struct {
+	Token     tokens.Token
+	Left      Expression
+	Methods   []Expression
+	Arguments [][]Expression
+}
+
+func (mc MethodCall) expressionNode() {}
+func (mc MethodCall) TokenLiteral() string {
+	return mc.Token.Literal
+}
+
+func (mc MethodCall) Str() string {
+	var sb strings.Builder
+	sb.WriteString(mc.Left.Str() + ".")
+	for i, m := range mc.Methods {
+		sb.WriteString(m.Str() + "(")
+		for idx, arg := range mc.Arguments[i] {
+			if idx != len(mc.Arguments[i])-1 {
+				sb.WriteString(arg.Str() + ",")
+			} else {
+				sb.WriteString(arg.Str())
+			}
+		}
+		sb.WriteString(")")
+		if i != len(mc.Methods)-1 {
+			sb.WriteString(".")
+		}
+	}
 	return sb.String()
 }

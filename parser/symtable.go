@@ -7,7 +7,8 @@ const (
 	Global  Scope   = "Global"
 	Local   Scope   = "Local"
 	BuiltIn Scope   = "BuiltIn"
-	I       SymType = "Ident"
+	I       SymType = "Indent"
+	M       SymType = "Method"
 	F       SymType = "Func"
 )
 
@@ -18,12 +19,44 @@ type Symbol struct {
 	Id        int
 }
 
+type MethodNames struct {
+	Index      int
+	methodName []string
+}
+
+func NewMethodName() *MethodNames {
+	var name []string
+	return &MethodNames{
+		Index:      -1,
+		methodName: name,
+	}
+}
+
+func (n *MethodNames) Add(name string) {
+	n.methodName = append(n.methodName, name)
+	n.Index++
+}
+
+func (n *MethodNames) FindName(idx int) string {
+	return n.methodName[idx]
+}
+
+func (n *MethodNames) FindIdx(name string) (int, bool) {
+	for i, n := range n.methodName {
+		if n == name {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
 type SymTable struct {
 	Outer          *SymTable
 	Inner          []*SymTable
 	BlockName      string
 	store          map[string]Symbol
 	numDefinitions int
+	Methods        *MethodNames
 }
 
 func NewSymTable(name string) *SymTable {
@@ -33,6 +66,7 @@ func NewSymTable(name string) *SymTable {
 		BlockName:      name,
 		store:          map[string]Symbol{},
 		numDefinitions: 0,
+		Methods:        NewMethodName(),
 	}
 }
 func (st *SymTable) NumDefinitions() int {
@@ -114,5 +148,6 @@ func NewInnerSymTable(name string, enter *SymTable) *SymTable {
 	table := NewSymTable(name)
 	enter.Inner = append(enter.Inner, table)
 	table.Outer = enter
+	table.Methods = enter.Methods
 	return table
 }

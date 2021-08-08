@@ -55,5 +55,7 @@ const (
 	OpIndex
 
 	OpCallFunc
+	OpLoadMethod
+	OpCallMethod
 	OpClosure
 )

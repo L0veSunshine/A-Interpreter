@@ -8,6 +8,7 @@ import (
 const (
 	_ int = iota
 	LOWEST
+	Method    // .
 	Eq        // == !=
 	GreatLess // < > <= >=
 	SUM       // +,-
@@ -17,6 +18,7 @@ const (
 	COMPARE   // and,or,not
 	CALL      //()
 	Index     //[]
+	Highest
 )
 
 type (
@@ -32,6 +34,7 @@ var precedences = map[string]int{
 	tokens.Mod:      POW,
 	tokens.Pow:      POW,
 	tokens.LParen:   CALL,
+	tokens.Dot:      Method,
 	tokens.Equal:    Eq,
 	tokens.LT:       GreatLess,
 	tokens.GT:       GreatLess,

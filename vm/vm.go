@@ -273,7 +273,55 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
+		case code.OpLoadMethod:
+			mId := code.ReadUint16(ins[ip+1:])
+			vm.currentFrame().ip += 2
+			mName := bytecode.Symbols.Methods.FindName(int(mId))
+			objType := vm.top().Type()
+			method, err := object.FindMethod(objType, mName)
+			if err != nil {
+				return err
+			}
+			err = vm.push(method)
+			if err != nil {
+				return err
+			}
+		case code.OpCallMethod:
+			argsNum := code.ReadUint8(ins[ip+1:])
+			vm.currentFrame().ip += 1
+			err := vm.callMethod(int(argsNum))
+			if err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+var args []object.Object
+
+func (vm *VM) callMethod(argsNum int) error {
+	baseIdx := vm.sp - argsNum - 1
+	obj := vm.stack[baseIdx-1]
+	method := vm.stack[baseIdx]
+	baseIdx++
+	args = args[:0]
+	for ; baseIdx < vm.sp; baseIdx++ {
+		args = append(args, vm.stack[baseIdx])
+	}
+	methodFunc, ok := method.(object.MethodObj)
+	if !ok {
+		return fmt.Errorf(format.Alert + "Method is invaild")
+	}
+	returnObj := methodFunc.M(obj, args...)
+	vm.sp = vm.sp - argsNum - 2
+	var err error
+	if len(returnObj) >= 2 {
+		err = vm.push(returnObj[1]) //push returned value
+	}
+	err = vm.push(returnObj[0]) //push self
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -665,7 +713,7 @@ func (vm *VM) arrayUpdate() error {
 	array := vm.pop()
 	var idxI int
 	target := vm.pop()
-	var newArray []object.Object
+	var pointer *object.Array
 	switch array := array.(type) {
 	case object.Array:
 		idx, ok := key.(object.Int)
@@ -674,15 +722,15 @@ func (vm *VM) arrayUpdate() error {
 		}
 		idxI = idx.Value
 		length := len(array.Elements)
-		newArray = array.Elements
 		if idxI < 0 {
 			idxI = idxI + length
 		}
 		if idxI < 0 || idxI >= len(array.Elements) {
 			return fmt.Errorf(format.Alert + "list assignment index out of range")
 		}
-		newArray[idxI] = target
-		err := vm.push(object.Array{Elements: newArray})
+		pointer = &array
+		pointer.Elements[idxI] = target
+		err := vm.push(array)
 		if err != nil {
 			return err
 		}
@@ -789,9 +837,8 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	return nil
 }
 
-var args []object.Object
-
 func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
+	args = args[:0]
 	args = vm.stack[vm.sp-argNums : vm.sp]
 	result := builtin.Fn(args...)
 	vm.sp = vm.sp - argNums - 1
