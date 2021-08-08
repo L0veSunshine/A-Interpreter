@@ -755,7 +755,6 @@ func (vm *VM) arrayUpdate() error {
 	default:
 		return fmt.Errorf(format.Alert+"type %s don't support setItem operation", array.Type())
 	}
-
 	return nil
 }
 

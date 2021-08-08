@@ -1,7 +1,6 @@
 package object
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -49,7 +48,6 @@ func (m Map) Inspect() string {
 			idx += 1
 		}
 	}
-	fmt.Println(len(m.Store))
 	sb.WriteString("}")
 	return sb.String()
 }
