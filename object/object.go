@@ -44,17 +44,6 @@ func (s String) Inspect() string {
 	return string(s.Value)
 }
 
-type Null struct {
-}
-
-func (n Null) Type() ObjType {
-	return NullObj
-}
-
-func (n Null) Inspect() string {
-	return ""
-}
-
 type Builtin struct {
 	Fn BuiltinFunction
 }

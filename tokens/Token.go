@@ -38,6 +38,7 @@ const (
 	For      = "For"
 	True     = "True"
 	False    = "False"
+	None     = "None"
 	If       = "If"
 	Else     = "Else"
 	Func     = "Func"
@@ -67,6 +68,7 @@ var Reserved = map[string]string{
 	"and":    And,
 	"or":     Or,
 	"not":    Not,
+	"none":   None,
 }
 
 type Locate struct {

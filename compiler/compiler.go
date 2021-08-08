@@ -100,6 +100,8 @@ func (c *Compiler) compile(node ast.Node) {
 		} else {
 			c.emit(code.OpFalse)
 		}
+	case ast.NoneNode:
+		c.emit(code.OpNull)
 	case ast.PrefixExpr:
 		c.compile(node.Right)
 		switch node.Op.Type {

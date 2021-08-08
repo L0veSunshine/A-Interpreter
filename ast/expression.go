@@ -114,6 +114,19 @@ func (s StringNode) Str() string {
 	return s.Value
 }
 
+type NoneNode struct {
+	Token tokens.Token
+}
+
+func (n NoneNode) expressionNode() {}
+func (n NoneNode) TokenLiteral() string {
+	return n.Token.Literal
+}
+
+func (n NoneNode) Str() string {
+	return "None"
+}
+
 type IfExpression struct {
 	Token       tokens.Token //"if" token
 	Condition   Expression

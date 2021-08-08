@@ -49,6 +49,7 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regPrefixFn(tokens.String, p.parseString)
 	p.regPrefixFn(tokens.False, p.parseBoolean)
 	p.regPrefixFn(tokens.True, p.parseBoolean)
+	p.regPrefixFn(tokens.None, p.parseNone)
 	p.regPrefixFn(tokens.If, p.parseIfExpression)
 	p.regPrefixFn(tokens.For, p.parseForExpr)
 	p.regPrefixFn(tokens.Func, p.parseFuncDef)
@@ -364,6 +365,11 @@ func (p *Parser) parseFloat() ast.Expression {
 	}
 }
 
+func (p *Parser) parseNone() ast.Expression {
+	token := p.curToken
+	return ast.NoneNode{Token: *token}
+}
+
 func (p *Parser) parseIdentifier() ast.Expression {
 	var node ast.Expression
 	token := p.curToken
@@ -519,7 +525,6 @@ func (p *Parser) parseFuncParams() []ast.IdentNode {
 		Token: *p.curToken,
 		Value: p.curToken.Literal,
 	}
-	p.SymTable.Define(p.curToken.Literal, I)
 	p.next()
 	params = append(params, param)
 	for p.curToken.Type == tokens.Comma {
@@ -543,6 +548,9 @@ func (p *Parser) parseFuncDef() ast.Expression {
 	p.SymTable = NewInnerSymTable(name, p.SymTable)
 	p.next()
 	params := p.parseFuncParams()
+	for _, param := range params {
+		p.SymTable.Define(param.Value, I)
+	}
 	body := p.parseBlockStatement()
 	p.SymTable = p.SymTable.Outer
 	return ast.FuncDef{

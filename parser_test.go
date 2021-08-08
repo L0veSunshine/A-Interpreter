@@ -238,6 +238,7 @@ var v=[1,2,3]
 print(v.pop()+10)
 print(v.pop())
 print(v.pop())
+print(v)
 `
 
 var s25 = `
@@ -250,9 +251,17 @@ foo()
 print(a)
 `
 var s26 = `
-var a=[1,2,3]
-var b=4
-print(a[b-2])`
+var a=[1,2,3,6,7,4,10]
+print(a)
+def swap(arr,i,j){
+var tmp=arr[i]
+arr[i]=arr[j]
+arr[j]=tmp
+return arr
+}
+print(swap(a,0,-1))
+print(a)
+`
 
 var s27 = `
 var b=[]
@@ -271,16 +280,20 @@ print(b.pop())
 print(b.pop())
 b[1]=99999
 print(b)
-print(len(b[-1]))`
+print(len(b))
+b.reverse()
+print(b)`
 
 var s28 = `
 var d={}
-print(d)
+d[1]="123"
+d[5]="567"
+print(d[1]==none)
 `
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s28)
+	lex := lexer.NewLexer(s26)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()

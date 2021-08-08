@@ -8,7 +8,6 @@ const (
 	Local   Scope   = "Local"
 	BuiltIn Scope   = "BuiltIn"
 	I       SymType = "Indent"
-	M       SymType = "Method"
 	F       SymType = "Func"
 )
 
