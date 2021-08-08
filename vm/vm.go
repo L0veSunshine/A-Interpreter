@@ -619,7 +619,13 @@ func (vm *VM) integerIndex(idx int) error {
 		}
 	case object.Map:
 		hash := idx + 193460240 //time33("IntObj")
-		err := vm.replace(obj.Store[hash].Item)
+		m, ok := obj.Store[hash]
+		var err error
+		if !ok {
+			err = vm.replace(NullObj)
+		} else {
+			err = vm.replace(m.Item)
+		}
 		if err != nil {
 			return err
 		}
@@ -635,7 +641,13 @@ func (vm *VM) mapIndex(hash int) error {
 		return fmt.Errorf(format.Alert+"string can't index type %s", obj.Type())
 	}
 	mapObj := obj.(object.Map)
-	err := vm.replace(mapObj.Store[hash].Item)
+	m, ok := mapObj.Store[hash]
+	var err error
+	if !ok {
+		err = vm.replace(NullObj)
+	} else {
+		err = vm.replace(m.Item)
+	}
 	if err != nil {
 		return err
 	}
