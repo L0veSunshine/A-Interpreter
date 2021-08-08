@@ -270,11 +270,20 @@ print(b.pop())
 print(b.pop())
 print(b.pop())
 b[1]=99999
-print(b)`
+print(b)
+print(len(b[-1]))`
+
+var s28 = `
+var d={}
+d[1]="123"
+d[5]="567"
+d[1]=123
+print(d)
+`
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s27)
+	lex := lexer.NewLexer(s28)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()

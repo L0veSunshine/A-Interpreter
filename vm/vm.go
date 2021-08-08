@@ -738,10 +738,16 @@ func (vm *VM) arrayUpdate() error {
 		idxI = utils.Hash(key)
 		p, ok := array.Store[idxI]
 		if !ok {
-			return fmt.Errorf(format.Alert+"key error: %s", key.Inspect())
+			newPair := object.MapPair{
+				Key:  key,
+				Item: target,
+			}
+			array.Store[idxI] = newPair
+			array.Size++
+		} else {
+			p.Item = target
+			array.Store[idxI] = p
 		}
-		p.Item = target
-		array.Store[idxI] = p
 		err := vm.push(array)
 		if err != nil {
 			return err
