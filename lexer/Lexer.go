@@ -107,13 +107,13 @@ func (l *Lexer) id() *tokens.Token {
 }
 
 func (l *Lexer) string() *tokens.Token {
-	l.advance(1)
+	l.advance(1) //skip "
 	var rs []rune
 	for !l.cur.Equal(`"`) && !l.cur.IsNull() {
 		rs = append(rs, l.cur.Rune())
 		l.advance(1)
 	}
-	l.advance(1)
+	l.advance(1) //skip "
 	return tokens.NToken(tokens.String, string(rs), l.Loc)
 }
 
@@ -215,6 +215,14 @@ LOOP:
 		return tokens.NToken(tokens.RBRACE, "}", loc)
 	case l.cur.Equal("."):
 		l.advance(1)
+		if l.cur.IsDigital() {
+			var value = []rune("0.")
+			for !l.cur.IsNull() && l.cur.IsDigital() {
+				value = append(value, l.cur.Rune())
+				l.advance(1)
+			}
+			return tokens.NToken(tokens.Float, string(value), l.Loc)
+		}
 		return tokens.NToken(tokens.Dot, ".", loc)
 	case l.cur.Equal("\n"):
 		l.advance(1)
