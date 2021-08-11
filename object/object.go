@@ -32,18 +32,6 @@ type Object interface {
 	Inspect() string
 }
 
-type String struct {
-	Value []rune
-}
-
-func (s String) Type() ObjType {
-	return StringObj
-}
-
-func (s String) Inspect() string {
-	return string(s.Value)
-}
-
 type Builtin struct {
 	Fn BuiltinFunction
 }

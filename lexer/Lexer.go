@@ -106,14 +106,14 @@ func (l *Lexer) id() *tokens.Token {
 	return t
 }
 
-func (l *Lexer) string() *tokens.Token {
-	l.advance(1) //skip "
+func (l *Lexer) string(LF string) *tokens.Token {
+	l.advance(1) //skip LF
 	var rs []rune
-	for !l.cur.Equal(`"`) && !l.cur.IsNull() {
+	for !l.cur.Equal(LF) && !l.cur.IsNull() {
 		rs = append(rs, l.cur.Rune())
 		l.advance(1)
 	}
-	l.advance(1) //skip "
+	l.advance(1) //skip LF
 	return tokens.NToken(tokens.String, string(rs), l.Loc)
 }
 
@@ -193,8 +193,8 @@ LOOP:
 	case l.cur.Equal("%"):
 		l.advance(1)
 		return tokens.NToken(tokens.Mod, "%", loc)
-	case l.cur.Equal(`"`):
-		return l.string()
+	case l.cur.Equal(`"`), l.cur.Equal(`'`):
+		return l.string(string(l.cur.Rune()))
 	case l.cur.Equal("("):
 		l.advance(1)
 		return tokens.NToken(tokens.LParen, "(", loc)

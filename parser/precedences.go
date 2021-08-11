@@ -36,6 +36,7 @@ var precedences = map[string]int{
 	tokens.LParen:   CALL,
 	tokens.Dot:      Method,
 	tokens.Equal:    Eq,
+	tokens.NotEq:    Eq,
 	tokens.LT:       GreatLess,
 	tokens.GT:       GreatLess,
 	tokens.LTEq:     GreatLess,

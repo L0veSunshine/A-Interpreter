@@ -830,7 +830,7 @@ func (vm *VM) executeCall(numArgs int) error {
 
 func (vm *VM) printTop() {
 	topObj := vm.top()
-	if topObj != NullObj {
+	if topObj != nil {
 		printFn := object.GetBuiltinFn("print")
 		printFn.Fn(topObj)
 		vm.sp = vm.sp - 2

@@ -171,11 +171,13 @@ var s19 = `
 def sum(){
 var s=0
 var start=0
-for(start<=20){
-if(start%2==0){
-s=s+start}
-start=start+1}
-return s}
+for(start<=200000){
+	if(start%2==0){
+		s=s+start
+	}
+	start=start+1}
+	return s
+}
 #sum()
 print(sum())`
 
@@ -227,10 +229,12 @@ print(a)
 var s23 = `
 var a={1:2,"1":"22","432":1232+2}
 a[1]=9
-a["432"]="12311"
+a["4321"]="12311"
 print(len("11,23"))
 print(float("1112.11"))
 print("1"=="1")
+print(a)
+print(len(a))
 `
 
 var s24 = `
@@ -254,10 +258,10 @@ var s26 = `
 var a=[1,2,3,6,7,4,10]
 print(a)
 def swap(arr,i,j){
-var tmp=arr[i]
-arr[i]=arr[j]
-arr[j]=tmp
-return arr
+	var tmp=arr[i]
+	arr[i]=arr[j]
+	arr[j]=tmp
+	return arr
 }
 print(swap(a,0,-1))
 print(a)
@@ -289,11 +293,23 @@ var d={}
 d[1]="123"
 d[5]="567"
 print(d[1]==none)
+print(int(1.11111)+3)
+`
+var s29 = `
+var b="hello world ni hao"
+print(b.split(" "))
+var s=0
+for (s<len(b)){
+var t=b[s]
+if(t!=" "){
+print(s+" --"+t)
+}
+s=s+1}
 `
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s26)
+	lex := lexer.NewLexer(s29)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
@@ -303,7 +319,7 @@ func TestParser_Parse(t *testing.T) {
 		fmt.Println(p.Errs(), len(p.Errs()))
 	}
 	c := compiler.NewCompiler()
-	////c.SetMode()
+	//c.SetMode()
 	c.SetSymbol(p.SymTable)
 	c.Compile(ast)
 	c.Debug()
@@ -319,7 +335,7 @@ func TestParser_Parse(t *testing.T) {
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := lexer.NewLexer(s17)
+	lex := lexer.NewLexer(s10)
 	p := parser.NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {

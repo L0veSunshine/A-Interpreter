@@ -134,7 +134,11 @@ func (p *Parser) parseProgram() ast.Program {
 		if stmt != nil {
 			statements = append(statements, stmt)
 		}
-		p.next()
+		if p.curToken.Type == tokens.LF {
+			p.skipLF()
+		} else {
+			p.next()
+		}
 	}
 	return ast.Program{Statements: statements}
 }
