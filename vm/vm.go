@@ -274,14 +274,13 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 				return err
 			}
 		case code.OpLoadMethod:
-			mId := code.ReadUint16(ins[ip+1:])
+			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			mName := bytecode.Symbols.Methods.FindName(int(mId))
+			mName := bytecode.Symbols.Methods.FindName(int(varIdx))
 			objType := vm.top().Type()
-			method, err := object.FindMethod(objType, mName)
-			if err != nil {
-				return err
-			}
+			var method object.Object
+			var err error
+			method, err = object.FindMethod(objType, mName)
 			err = vm.push(method)
 			if err != nil {
 				return err
