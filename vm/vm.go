@@ -6,7 +6,6 @@ import (
 	"Interpreter/format"
 	"Interpreter/object"
 	"Interpreter/utils"
-	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -473,7 +472,7 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 		if rightVal != 0 {
 			fRes = float64(leftVal) / float64(rightVal)
 		} else {
-			return errors.New("division by zero")
+			return DivZeroErr
 		}
 		return vm.replace(object.Float{Value: fRes})
 	case code.OpMod:
@@ -486,6 +485,8 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 	}
 	return vm.replace(object.Int{Value: res})
 }
+
+var DivZeroErr = fmt.Errorf(format.Alert + "division by zero")
 
 func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error {
 	var leftVal float64
@@ -514,7 +515,7 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 		if rightVal != 0 {
 			res = leftVal / rightVal
 		} else {
-			return fmt.Errorf(format.Alert + "division by zero")
+			return DivZeroErr
 		}
 	case code.OpMod:
 		res = math.Mod(leftVal, rightVal)
@@ -587,6 +588,7 @@ func (vm *VM) applyIndex() error {
 
 func (vm *VM) integerIndex(idx int) error {
 	obj := vm.top()
+	var err error
 	switch obj := obj.(type) {
 	case object.Array:
 		maxLen := len(obj.Elements) - 1
@@ -598,7 +600,7 @@ func (vm *VM) integerIndex(idx int) error {
 				idx = 0
 			}
 		}
-		err := vm.replace(obj.Elements[idx])
+		err = vm.replace(obj.Elements[idx])
 		if err != nil {
 			return err
 		}
@@ -612,14 +614,13 @@ func (vm *VM) integerIndex(idx int) error {
 				idx = 0
 			}
 		}
-		err := vm.replace(object.String{Value: []rune{obj.Value[idx]}})
+		err = vm.replace(object.String{Value: []rune{obj.Value[idx]}})
 		if err != nil {
 			return err
 		}
 	case object.Map:
 		hash := idx + 193460240 //time33("IntObj")
 		m, ok := obj.Store[hash]
-		var err error
 		if !ok {
 			err = vm.replace(NullObj)
 		} else {
@@ -656,6 +657,7 @@ func (vm *VM) mapIndex(hash int) error {
 func (vm *VM) sliceIndex(s object.Slice) error {
 	obj := vm.top()
 	var start, end, step int
+	var err error
 	switch obj := obj.(type) {
 	case object.Array:
 		start, end, step = vm.handleSlice(s, len(obj.Elements))
@@ -669,7 +671,7 @@ func (vm *VM) sliceIndex(s object.Slice) error {
 				newArr = append(newArr, obj.Elements[start])
 			}
 		}
-		err := vm.replace(object.Array{Elements: newArr})
+		err = vm.replace(object.Array{Elements: newArr})
 		if err != nil {
 			return err
 		}
@@ -685,7 +687,7 @@ func (vm *VM) sliceIndex(s object.Slice) error {
 				newStr = append(newStr, obj.Value[start])
 			}
 		}
-		err := vm.replace(object.String{Value: newStr})
+		err = vm.replace(object.String{Value: newStr})
 		if err != nil {
 			return err
 		}
@@ -836,20 +838,16 @@ func (vm *VM) printTop() {
 	}
 }
 
-var frame Frame
-
 func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf(format.Alert+"wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
 	newVars := make([]object.Object, fn.LocalsNum)
-	frame = NewFrame(fn.Instructions, newVars, vm.sp-numArgs)
-	fnArgs := vm.stack[vm.sp-numArgs : vm.sp]
-	for idx, arg := range fnArgs {
-		frame.vars[idx] = arg
+	for idx, arg := range vm.stack[vm.sp-numArgs : vm.sp] {
+		newVars[idx] = arg
 	}
-	vm.pushFrame(frame)
+	vm.pushFrame(NewFrame(fn.Instructions, newVars, vm.sp-numArgs))
 	return nil
 }
 
