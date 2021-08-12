@@ -111,7 +111,7 @@ func (s StringNode) TokenLiteral() string {
 }
 
 func (s StringNode) Str() string {
-	return s.Value
+	return "'" + s.Value + "'"
 }
 
 type NoneNode struct {

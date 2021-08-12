@@ -91,7 +91,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	var op code.Opcode
 	var varIdx uint16
 
-	vm.frames[0] = NewFrame(bytecode.Instruction, vm.globals, 0)
+	vm.frames[0] = NewFrame(bytecode.Instruction, &vm.globals, 0)
 	vm.constants = bytecode.Constants
 
 	for vm.currentFrame().ip < len(vm.currentFrame().Instructions())-1 {
@@ -847,7 +847,7 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	for idx, arg := range vm.stack[vm.sp-numArgs : vm.sp] {
 		newVars[idx] = arg
 	}
-	vm.pushFrame(NewFrame(fn.Instructions, newVars, vm.sp-numArgs))
+	vm.pushFrame(NewFrame(fn.Instructions, &newVars, vm.sp-numArgs))
 	return nil
 }
 

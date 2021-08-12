@@ -6,18 +6,17 @@ import (
 )
 
 const (
-	_ int = iota
-	LOWEST
-	Method    // .
-	Eq        // == !=
-	GreatLess // < > <= >=
-	SUM       // +,-
-	PRODUCT   // *,/,//
-	POW       //**
-	PREFIX    // -x,!x
-	COMPARE   // and,or,not
-	CALL      //()
-	Index     //[]
+	LOWEST    int = iota
+	Method        // .
+	Eq            // == !=
+	GreatLess     // < > <= >=
+	SUM           // +,-
+	PRODUCT       // *,/,//
+	POW           //**
+	PREFIX        // -x,!x
+	COMPARE       // and,or,not
+	CALL          //()
+	Index         //[]
 	Highest
 )
 
