@@ -42,6 +42,9 @@ func arrayPop(self Object, _ ...Object) []Object {
 	obj := self.(Array)
 	arr := &obj
 	idx := len(arr.Elements) - 1
+	if idx < 0 {
+		return []Object{*arr, Error{ErrorMsg: "Index out of range."}}
+	}
 	tar := arr.Elements[idx]
 	arr.Elements = arr.Elements[:idx]
 	return []Object{*arr, tar}

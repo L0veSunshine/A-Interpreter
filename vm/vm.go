@@ -815,10 +815,8 @@ func (vm *VM) popFrame() Frame {
 	return vm.frames[vm.frameIdx]
 }
 
-var callee object.Object
-
 func (vm *VM) executeCall(numArgs int) error {
-	callee = vm.stack[vm.sp-1-numArgs]
+	callee := vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
 		return vm.callFunc(callee, numArgs)
@@ -855,7 +853,7 @@ func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
 	args = args[:0]
 	args = vm.stack[vm.sp-argNums : vm.sp]
 	result := builtin.Fn(args...)
-	vm.sp = vm.sp - argNums - 1
+	vm.sp = vm.sp - argNums
 	if result != nil {
 		return vm.push(result)
 	}

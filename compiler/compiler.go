@@ -181,6 +181,7 @@ func (c *Compiler) compile(node ast.Node) {
 		c.emit(code.OpJump, forStatPos)
 		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
+		c.emit(code.OpPop)
 	case ast.MethodCall:
 		c.compile(node.Left)
 		for i, method := range node.Methods {
