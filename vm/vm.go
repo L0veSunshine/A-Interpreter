@@ -823,7 +823,7 @@ func (vm *VM) executeCall(numArgs int) error {
 	case object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
 	default:
-		return fmt.Errorf(format.Alert + "calling non-function and non-built-in")
+		return fmt.Errorf(format.Alert+"calling non-function and non-built-in (type %s)", callee.Type())
 	}
 }
 
@@ -853,11 +853,11 @@ func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
 	args = args[:0]
 	args = vm.stack[vm.sp-argNums : vm.sp]
 	result := builtin.Fn(args...)
-	vm.sp = vm.sp - argNums
+	vm.sp = vm.sp - argNums - 1
 	if result != nil {
 		return vm.push(result)
 	}
-	return vm.push(NullObj)
+	return nil
 }
 
 func (vm *VM) debug(operandWidth int) {
