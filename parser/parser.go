@@ -148,15 +148,18 @@ func (p *Parser) parseStatement() ast.Statement {
 	case tokens.Var:
 		return p.parseVarStatement()
 	case tokens.Ident:
-		switch {
-		case p.peekToken.Type == tokens.Assign:
+		switch p.peekToken.Type {
+		case tokens.Assign:
 			return p.parseAssignStatement()
-		case p.peekToken.Type == tokens.LParen:
+		case tokens.LParen:
 			return p.parseCallStatement()
-		case p.peekToken.Type == tokens.LBRACKET:
+		case tokens.LBRACKET:
 			return p.parseExprAssign()
-		case p.peekToken.Type == tokens.Dot:
+		case tokens.Dot:
 			return p.parseMethodCallStmt()
+		case tokens.IPlus, tokens.IMinus, tokens.IMul,
+			tokens.IDiv, tokens.IPow, tokens.IMod:
+			return p.parseReplaceAssign()
 		}
 		return p.parseExprStatement()
 	case tokens.Return:
@@ -182,6 +185,19 @@ func (p *Parser) parseMethodCallStmt() ast.Statement {
 		Token: *token,
 		Call:  expr,
 	}
+}
+
+func (p *Parser) parseReplaceAssign() ast.Statement {
+	left := p.parseIdentifier()
+	p.next() //skip ident
+	op := p.curToken
+	p.next() //skip +=,-=,*/...
+	expr := p.parseExpr(LOWEST)
+	return ast.ExprStatement{Expression: ast.InfixExpr{
+		Left:  left,
+		Right: expr,
+		Op:    *op,
+	}}
 }
 
 func (p *Parser) parseVarStatement() ast.Statement {

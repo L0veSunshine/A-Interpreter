@@ -17,6 +17,13 @@ const (
 	Div   = "Div"   // /
 	Mod   = "Mod"   // %
 
+	IPlus  = "IPlus"  // +=
+	IMinus = "IMinus" // -=
+	IPow   = "IPow"   // **=
+	IMul   = "IMul"   // *=
+	IDiv   = "IDiv"   // /=
+	IMod   = "IMod"   // %=
+
 	Equal = "Equal" // ==
 	NotEq = "NotEq" // !=
 	LT    = "LT"    // <

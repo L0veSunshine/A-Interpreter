@@ -115,7 +115,8 @@ func (c *Compiler) compile(node ast.Node) {
 			c.NewErrorF("unknown operator %s", node.Op.Str())
 		}
 	case ast.InfixExpr:
-		if node.Op.Type == tokens.LT || node.Op.Type == tokens.LTEq {
+		switch node.Op.Type {
+		case tokens.LT, tokens.LTEq:
 			c.compile(node.Right)
 			c.compile(node.Left)
 			switch node.Op.Type {
@@ -127,36 +128,60 @@ func (c *Compiler) compile(node ast.Node) {
 				c.NewErrorF("unsupported op %s", node.Op.Str())
 			}
 			return
-		}
-		c.compile(node.Left)
-		c.compile(node.Right)
-		switch node.Op.Type {
-		case tokens.Plus:
-			c.emit(code.OpAdd)
-		case tokens.Minus:
-			c.emit(code.OpSub)
-		case tokens.Mul:
-			c.emit(code.OpMul)
-		case tokens.Div:
-			c.emit(code.OpDiv)
-		case tokens.Mod:
-			c.emit(code.OpMod)
-		case tokens.Pow:
-			c.emit(code.OpPow)
-		case tokens.GT:
-			c.emit(code.OpGT)
-		case tokens.GTEq:
-			c.emit(code.OpGTEq)
-		case tokens.Equal:
-			c.emit(code.OpEqual)
-		case tokens.NotEq:
-			c.emit(code.OpNotEQ)
-		case tokens.And:
-			c.emit(code.OpAnd)
-		case tokens.Or:
-			c.emit(code.OpOr)
+		case tokens.IPlus, tokens.IMinus, tokens.IMul, tokens.IDiv, tokens.IMod, tokens.IPow:
+			ident := node.Left
+			s, ok := c.symTable.Resolve(ident.TokenLiteral())
+			if !ok {
+				c.NewErrorF("Identifier %s was not defined", s.Name)
+			}
+			c.compile(node.Left)
+			c.compile(node.Right)
+			switch node.Op.Type {
+			case tokens.IPlus:
+				c.emit(code.OpAdd)
+			case tokens.IMinus:
+				c.emit(code.OpSub)
+			case tokens.IMul:
+				c.emit(code.OpMul)
+			case tokens.IDiv:
+				c.emit(code.OpDiv)
+			case tokens.IPow:
+				c.emit(code.OpPow)
+			case tokens.IMod:
+				c.emit(code.OpMod)
+			}
+			c.updateScope(s)
 		default:
-			c.NewErrorF("unknown operator %s", node.Op.Str())
+			c.compile(node.Left)
+			c.compile(node.Right)
+			switch node.Op.Type {
+			case tokens.Plus:
+				c.emit(code.OpAdd)
+			case tokens.Minus:
+				c.emit(code.OpSub)
+			case tokens.Mul:
+				c.emit(code.OpMul)
+			case tokens.Div:
+				c.emit(code.OpDiv)
+			case tokens.Mod:
+				c.emit(code.OpMod)
+			case tokens.Pow:
+				c.emit(code.OpPow)
+			case tokens.GT:
+				c.emit(code.OpGT)
+			case tokens.GTEq:
+				c.emit(code.OpGTEq)
+			case tokens.Equal:
+				c.emit(code.OpEqual)
+			case tokens.NotEq:
+				c.emit(code.OpNotEQ)
+			case tokens.And:
+				c.emit(code.OpAnd)
+			case tokens.Or:
+				c.emit(code.OpOr)
+			default:
+				c.NewErrorF("unknown operator %s", node.Op.Str())
+			}
 		}
 	case ast.IfExpression:
 		c.compile(node.Condition)

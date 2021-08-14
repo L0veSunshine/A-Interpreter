@@ -73,6 +73,15 @@ func (l *Lexer) peek() *Char {
 	}
 }
 
+func (l *Lexer) peekCount(n int) *Char {
+	peekPos := l.pos + n
+	if peekPos >= len(l.rs) {
+		return Code(0)
+	} else {
+		return Code(l.rs[peekPos])
+	}
+}
+
 func (l *Lexer) number() *tokens.Token {
 	var value []rune
 	for !l.cur.IsNull() && l.cur.IsDigital() {
@@ -174,23 +183,46 @@ LOOP:
 		l.advance(1)
 		return tokens.NToken(tokens.Comma, ",", loc)
 	case l.cur.Equal("+"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.IPlus, "+=", loc)
+		}
 		l.advance(1)
 		return tokens.NToken(tokens.Plus, "+", loc)
 	case l.cur.Equal("-"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.IMinus, "-=", loc)
+		}
 		l.advance(1)
 		return tokens.NToken(tokens.Minus, "-", loc)
 	case l.cur.Equal("*"):
-		p := l.peek()
-		if p.Equal("*") {
+		if l.peek().Equal("*") {
+			if l.peekCount(2).Equal("=") {
+				l.advance(3)
+				return tokens.NToken(tokens.IPow, "**=", loc)
+			}
 			l.advance(2)
 			return tokens.NToken(tokens.Pow, "**", loc)
+		}
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.IMul, "*=", loc)
 		}
 		l.advance(1)
 		return tokens.NToken(tokens.Mul, "*", loc)
 	case l.cur.Equal("/"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.IDiv, "/=", loc)
+		}
 		l.advance(1)
 		return tokens.NToken(tokens.Div, "/", loc)
 	case l.cur.Equal("%"):
+		if l.peek().Equal("=") {
+			l.advance(2)
+			return tokens.NToken(tokens.IMod, "%=", loc)
+		}
 		l.advance(1)
 		return tokens.NToken(tokens.Mod, "%", loc)
 	case l.cur.Equal(`"`), l.cur.Equal(`'`):
