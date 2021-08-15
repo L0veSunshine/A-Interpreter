@@ -73,7 +73,7 @@ func (l *Lexer) peek() *Char {
 	}
 }
 
-func (l *Lexer) peekCount(n int) *Char {
+func (l *Lexer) peekN(n int) *Char {
 	peekPos := l.pos + n
 	if peekPos >= len(l.rs) {
 		return Code(0)
@@ -198,7 +198,7 @@ LOOP:
 		return tokens.NToken(tokens.Minus, "-", loc)
 	case l.cur.Equal("*"):
 		if l.peek().Equal("*") {
-			if l.peekCount(2).Equal("=") {
+			if l.peekN(2).Equal("=") {
 				l.advance(3)
 				return tokens.NToken(tokens.IPow, "**=", loc)
 			}

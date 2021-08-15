@@ -75,6 +75,7 @@ func arrayIndex(self Object, target ...Object) []Object {
 	for i, o := range arr.Elements {
 		if RichCompare(tar, o) {
 			idx = i
+			break
 		}
 	}
 	return []Object{*arr, Int{Value: idx}}
