@@ -280,6 +280,9 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			var method object.Object
 			var err error
 			method, err = object.FindMethod(objType, mName)
+			if err != nil {
+				return err
+			}
 			err = vm.push(method)
 			if err != nil {
 				return err

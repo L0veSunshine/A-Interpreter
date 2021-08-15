@@ -1,6 +1,9 @@
 package object
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type Array struct {
 	Elements []Object
@@ -61,8 +64,25 @@ func arrayReverse(self Object, _ ...Object) []Object {
 	return []Object{*arr, nullObj}
 }
 
+func arrayIndex(self Object, target ...Object) []Object {
+	if len(target) == 0 {
+		return []Object{self, Error{ErrorMsg: fmt.Sprintf("no args")}}
+	}
+	tar := target[0]
+	obj := self.(Array)
+	arr := &obj
+	var idx = -1
+	for i, o := range arr.Elements {
+		if RichCompare(tar, o) {
+			idx = i
+		}
+	}
+	return []Object{*arr, Int{Value: idx}}
+}
+
 var ArrayMethodList = ObjMethods{
 	"append":  MethodObj{arrayAppend},
 	"pop":     MethodObj{arrayPop},
 	"reverse": MethodObj{arrayReverse},
+	"index":   MethodObj{M: arrayIndex},
 }

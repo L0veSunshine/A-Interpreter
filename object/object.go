@@ -87,3 +87,9 @@ func (e Error) Type() ObjType {
 func (e Error) Inspect() string {
 	return format.Error + "Error: " + e.ErrorMsg
 }
+
+func RichCompare(v, w Object) bool {
+	res := v.Type() == w.Type()
+	res = res && (v.Inspect() == w.Inspect())
+	return res
+}
