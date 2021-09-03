@@ -35,7 +35,6 @@ const (
 
 	OpNull
 
-	OpReturn
 	OpReturnVal
 
 	OpGetGlobal

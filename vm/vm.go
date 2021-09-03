@@ -194,13 +194,6 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
-		case code.OpReturn:
-			frame := vm.popFrame()
-			vm.sp = frame.basePoint - 1
-			err := vm.push(object.Null{})
-			if err != nil {
-				return err
-			}
 		case code.OpSetLocal:
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2

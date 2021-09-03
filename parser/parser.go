@@ -231,6 +231,12 @@ func (p *Parser) parseVarStatement() ast.Statement {
 func (p *Parser) parseReturnStatement() ast.Statement {
 	token := *p.curToken // Return tokens
 	p.eat(tokens.Return)
+	if p.curToken.Type == tokens.LF {
+		return ast.ReturnStatement{
+			Token:     token,
+			ReturnVal: nil,
+		}
+	}
 	returnVal := p.parseExpr(LOWEST)
 	if p.peekToken.IsLF() {
 		p.next()

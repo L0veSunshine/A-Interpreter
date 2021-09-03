@@ -284,7 +284,8 @@ func (c *Compiler) compile(node ast.Node) {
 			c.replaceLast(code.OpReturnVal)
 		}
 		if !c.isLastIns(code.OpReturnVal) {
-			c.emit(code.OpReturn)
+			c.emit(code.OpNull)
+			c.emit(code.OpReturnVal)
 		}
 		numLocals := c.symTable.NumDefinitions()
 		instructions := c.leaveScope()
@@ -301,7 +302,11 @@ func (c *Compiler) compile(node ast.Node) {
 			c.Push(err)
 		}
 	case ast.ReturnStatement:
-		c.compile(node.ReturnVal)
+		if node.ReturnVal != nil {
+			c.compile(node.ReturnVal)
+		} else {
+			c.emit(code.OpNull)
+		}
 		c.emit(code.OpReturnVal)
 	case ast.Array:
 		for _, e := range node.Elements {

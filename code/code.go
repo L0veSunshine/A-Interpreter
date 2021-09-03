@@ -38,7 +38,6 @@ var Definitions = map[Opcode]Definition{
 	OpNull:         {"OpNull", []int{}},
 	OpGetGlobal:    {"OpGetGlobal", []int{2}},
 	OpSetGlobal:    {"OpSetGlobal", []int{2}},
-	OpReturn:       {"OpReturn", []int{}},
 	OpReturnVal:    {"OpReturnVal", []int{}},
 	OpUpdateGlobal: {"OpUpdateGlobal", []int{2}},
 	OpUpdateLocal:  {"OpUpdateLocal", []int{2}},

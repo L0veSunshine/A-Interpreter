@@ -68,7 +68,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 	case "OpConstant":
 		obj := b.Constants[idx]
 		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
-	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal", "OpReturn", "OpReturnVal":
+	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal":
 		if name, ok := scope.FindByIdx(idx); ok {
 			args = name
 		}
@@ -78,7 +78,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 	case "OpClosure":
 		fn := b.Constants[idx].(object.CompiledFunc)
 		var argSb strings.Builder
-		argSb.WriteString("Call Func <" + fn.FnName + ">")
+		argSb.WriteString("Get Func <" + fn.FnName + ">")
 		return argSb.String()
 	case "OpGetBuiltin":
 		builtIn := object.BuiltinFns[idx]

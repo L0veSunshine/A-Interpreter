@@ -158,11 +158,18 @@ if(res>=2){
 res=res+10}`
 
 var s18 = `
-var start=35
+var start=45
+var cache={}
 def fib(x){
 if(x<=1){
 return x}else{
-return fib(x-1)+fib(x-2)}
+if (cache[x]!=none){
+	return cache[x]
+}else{
+var res=fib(x-1)+fib(x-2)
+cache[x]=res
+return res}
+}
 }
 start=fib(start)
 print(start)`
@@ -290,10 +297,16 @@ print(b)`
 
 var s28 = `
 var d={}
-d[1]="123"
+d[1]=123
 d[5]="567"
-print(d[1]==none)
+print(d[1]==123)
 print(int(1.11111)+3)
+d[1]=d[1]+1
+var exp="aBc"
+var tsss=exp.upper()
+print(tsss)
+print(tsss.lower())
+print(tsss)
 `
 var s29 = `
 var b="hello world ni hao"
@@ -309,7 +322,7 @@ s=s+1}
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s29)
+	lex := lexer.NewLexer(s18)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
