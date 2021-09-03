@@ -120,6 +120,9 @@ func (st *SymTable) FindByIdx(index int) (string, bool) {
 }
 
 func Search(name string, enter *SymTable) *SymTable {
+	if enter.BlockName == name {
+		return enter
+	}
 	var cur = enter
 	for cur.Outer != nil {
 		cur = cur.Outer

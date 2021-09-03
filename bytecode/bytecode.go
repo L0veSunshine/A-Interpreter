@@ -9,39 +9,34 @@ import (
 	"strings"
 )
 
-var RecursionLimit = 30
-
 type Bytecode struct {
 	Instruction code.Instructions
 	Constants   []object.Object
 	Symbols     *parser.SymTable
 }
 
-var switcher = true
-
-var sts = NewSymTableStack()
-
 func (b *Bytecode) Ins() string {
-	sts.Append(b.Symbols)
-	ls := strings.Repeat("=", 40) + "\n"
+	ls := strings.Repeat("=", 50) + "\n"
 	var sb strings.Builder
 	sb.WriteString(ls)
-	sb.WriteString(fmt.Sprintf("%25s\n", "Byte Code"))
-	sb.WriteString(ls)
+	sb.WriteString(b.decodeFunc())
+
+	sb.WriteString(fmt.Sprintf("%30s\n", "<Main Function>"))
+	//sb.WriteString(ls)
 	sb.WriteString(b.String() + "\n")
 	sb.WriteString(ls)
 	return sb.String()
 }
 
-func (b *Bytecode) InsToString(ins code.Instructions, start, indent int) string {
+func (b *Bytecode) InsToString(ins code.Instructions, start, indent int, scope *parser.SymTable) string {
 	var sb strings.Builder
 	for i := 0; i < len(ins); i++ {
 		opcode := code.Opcode(ins[i])
 		def, ok := code.Definitions[opcode]
 		if ok {
 			operand, offset := code.ReadOperand(def, ins[i+1:])
-			format := strings.Repeat(" ", start) + " %-" + strconv.Itoa(indent) + "d %-18s %s"
-			args := b.getArgs(def, operand)
+			format := strings.Repeat(" ", start) + " %-" + strconv.Itoa(indent) + "d %-22s %s"
+			args := b.getArgs(def, operand, scope)
 			sb.WriteString(fmt.Sprintf(format, i, def.Name, args))
 			i += offset
 			if i != len(ins)-1 {
@@ -53,10 +48,11 @@ func (b *Bytecode) InsToString(ins code.Instructions, start, indent int) string 
 }
 
 func (b *Bytecode) String() string {
-	return b.InsToString(b.Instruction, 0, 4)
+	s := parser.Search("Base", b.Symbols)
+	return b.InsToString(b.Instruction, 1, 4, s)
 }
 
-func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
+func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.SymTable) string {
 	var args string
 	var idx int
 	switch len(def.OperandWidth) {
@@ -72,64 +68,42 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int) string {
 	case "OpConstant":
 		obj := b.Constants[idx]
 		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
-	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal",
-		"OpSetLocal", "OpGetLocal", "OpUpdateLocal":
-		if name, ok := b.Symbols.FindByIdx(idx); ok {
+	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal", "OpReturn", "OpReturnVal":
+		if name, ok := scope.FindByIdx(idx); ok {
 			args = name
 		}
 	case "OpLoadMethod":
-		name := b.Symbols.Methods.FindName(idx)
+		name := scope.Methods.FindName(idx)
 		args += "(" + strconv.Quote(name) + ")"
 	case "OpClosure":
 		fn := b.Constants[idx].(object.CompiledFunc)
 		var argSb strings.Builder
-		argSb.WriteString("Func <" + fn.FnName + ">")
-		RecursionLimit--
-		if RecursionLimit <= 0 {
-			return args
-		}
-		tmp := parser.Search(fn.FnName, b.Symbols)
-		sts.Append(tmp)
-		b.Symbols = tmp
-		argSb.WriteString("\n" + b.InsToString(fn.Instructions, (30-RecursionLimit)*2, 4))
+		argSb.WriteString("Call Func <" + fn.FnName + ">")
 		return argSb.String()
 	case "OpGetBuiltin":
 		builtIn := object.BuiltinFns[idx]
 		args = builtIn.Name
-	case "OpReturn", "OpReturnVal":
-		if switcher {
-			sts.Pop()
-		}
-		switcher = false
-		r := sts.Pop()
-		if r != nil {
-			b.Symbols = r
+	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal":
+		base := parser.Search("Base", b.Symbols)
+		if name, ok := base.FindByIdx(idx); ok {
+			args = name
 		}
 	}
 	return args
 }
 
-type SymTableStack struct {
-	stack []*parser.SymTable
-	idx   int
-}
-
-func NewSymTableStack() *SymTableStack {
-	var a []*parser.SymTable
-	return &SymTableStack{
-		stack: a,
-		idx:   0,
+func (b *Bytecode) decodeFunc() string {
+	var sb strings.Builder
+	for _, obj := range b.Constants {
+		if obj.Type() == object.CompiledFuncObj {
+			funcObj := obj.(object.CompiledFunc)
+			sb.WriteString(fmt.Sprintf(`Disassembly of <FunctionObject %s at line %d>:`,
+				funcObj.FnName, funcObj.LineLoc))
+			sb.WriteString("\n")
+			s := parser.Search(funcObj.FnName, b.Symbols)
+			sb.WriteString(b.InsToString(funcObj.Instructions, 1, 4, s))
+			sb.WriteString("\n\n")
+		}
 	}
-}
-
-func (ss *SymTableStack) Append(s *parser.SymTable) {
-	ss.stack = append(ss.stack, s)
-	ss.idx += 1
-}
-func (ss *SymTableStack) Pop() *parser.SymTable {
-	if ss.idx >= 1 {
-		ss.idx--
-		return ss.stack[ss.idx]
-	}
-	return nil
+	return sb.String()
 }

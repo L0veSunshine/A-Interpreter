@@ -50,6 +50,7 @@ type CompiledFunc struct {
 	LocalsNum     int
 	ParametersNum int
 	Called        bool
+	LineLoc       int
 }
 
 func (cf CompiledFunc) Type() ObjType {

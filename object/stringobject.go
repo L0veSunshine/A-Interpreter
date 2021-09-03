@@ -34,6 +34,48 @@ func stringSplit(self Object, args ...Object) []Object {
 	return []Object{self, Array{Elements: res}}
 }
 
+func toUpper(self Object, args ...Object) []Object {
+	rs := self.(String).Value
+	if len(args) > 0 {
+		return []Object{Error{ErrorMsg: fmt.Sprintf("want not arg but get %d", len(args))}}
+	}
+	nrs := navToUpper(rs)
+	return []Object{self, String{Value: nrs}}
+}
+
+func toLower(self Object, args ...Object) []Object {
+	rs := self.(String).Value
+	if len(args) > 0 {
+		return []Object{Error{ErrorMsg: fmt.Sprintf("want not arg but get %d", len(args))}}
+	}
+	nrs := navToLower(rs)
+	return []Object{self, String{Value: nrs}}
+}
+
+func navToUpper(rs []rune) []rune {
+	nrs := make([]rune, 0, len(rs))
+	for _, r := range rs {
+		if 97 <= r && r <= 122 {
+			r -= 32
+		}
+		nrs = append(nrs, r)
+	}
+	return nrs
+}
+
+func navToLower(rs []rune) []rune {
+	nrs := make([]rune, 0, len(rs))
+	for _, r := range rs {
+		if 65 <= r && r <= 90 {
+			r += 32
+		}
+		nrs = append(nrs, r)
+	}
+	return nrs
+}
+
 var StringMethodList = ObjMethods{
 	"split": MethodObj{M: stringSplit},
+	"upper": MethodObj{M: toUpper},
+	"lower": MethodObj{M: toLower},
 }

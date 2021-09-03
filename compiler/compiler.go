@@ -294,6 +294,7 @@ func (c *Compiler) compile(node ast.Node) {
 			Instructions:  instructions,
 			LocalsNum:     numLocals,
 			ParametersNum: paramsCount,
+			LineLoc:       node.Token.Loc.Line,
 		}
 		err := c.constants.AddFunc(fnIdx, compiledFn)
 		if err != nil {
