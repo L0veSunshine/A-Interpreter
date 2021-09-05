@@ -57,6 +57,7 @@ const (
 	Dot   = "Dot"   //.
 	Colon = "Colon" //:
 	Comma = "Comma" //,
+	Semi  = "Semi"  //;
 	LF    = "LF"
 
 	EOF     = "EOF"

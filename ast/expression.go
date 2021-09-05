@@ -152,9 +152,11 @@ func (i IfExpression) Str() string {
 }
 
 type ForExpression struct {
-	Token     tokens.Token
-	Condition Expression
-	Loop      *BlockStatement
+	Token       tokens.Token
+	InitCond    Statement
+	Condition   Expression
+	EachOperate Statement
+	Loop        *BlockStatement
 }
 
 func (fe ForExpression) expressionNode() {}
@@ -164,7 +166,21 @@ func (fe ForExpression) TokenLiteral() string {
 
 func (fe ForExpression) Str() string {
 	var sb strings.Builder
-	sb.WriteString("For (" + fe.Condition.Str() + ") ")
+	sb.WriteString("For (")
+	if fe.InitCond != nil {
+		sb.WriteString(fe.InitCond.Str() + ";")
+	} else {
+		sb.WriteString(";")
+	}
+	if fe.Condition != nil {
+		sb.WriteString(fe.Condition.Str() + ";")
+	} else {
+		sb.WriteString(";")
+	}
+	if fe.EachOperate != nil {
+		sb.WriteString(fe.EachOperate.Str())
+	}
+	sb.WriteString(")")
 	sb.WriteString(fe.Loop.Str())
 	return sb.String()
 }

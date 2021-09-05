@@ -174,9 +174,6 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
 			vm.frames[0].vars[varIdx] = vm.top()
-			if vm.sp > 1 {
-				vm.sp--
-			}
 		case code.OpCallFunc:
 			numArgs := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip++
@@ -209,9 +206,6 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
 			vm.currentFrame().vars[varIdx] = vm.top()
-			if vm.sp > 1 {
-				vm.sp--
-			}
 		case code.OpGetBuiltin:
 			builtinIdx := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip += 1

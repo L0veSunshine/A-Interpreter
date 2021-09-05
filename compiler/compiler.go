@@ -150,7 +150,7 @@ func (c *Compiler) compile(node ast.Node) {
 			case tokens.IMod:
 				c.emit(code.OpMod)
 			}
-			c.updateScope(s)
+			c.setScope(s)
 		default:
 			c.compile(node.Left)
 			c.compile(node.Right)
@@ -199,10 +199,16 @@ func (c *Compiler) compile(node ast.Node) {
 		afterAlterPos := len(c.curInstruction())
 		c.changeOperand(jumpPos, afterAlterPos)
 	case ast.ForExpression:
+		if node.InitCond != nil {
+			c.compile(node.InitCond)
+		}
 		forStatPos := len(c.curInstruction())
 		c.compile(node.Condition)
 		breakPos := c.emit(code.OpJumpNotTrue, 9999)
 		c.compile(node.Loop)
+		if node.EachOperate != nil {
+			c.compile(node.EachOperate)
+		}
 		c.emit(code.OpJump, forStatPos)
 		c.changeOperand(breakPos, len(c.curInstruction()))
 		c.emit(code.OpNull)
@@ -272,7 +278,7 @@ func (c *Compiler) compile(node ast.Node) {
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
 		} else {
-			c.updateScope(s)
+			c.setScope(s)
 		}
 	case ast.FuncDef:
 		c.enterScope()
@@ -352,7 +358,7 @@ func (c *Compiler) compile(node ast.Node) {
 		c.compile(node.Key)
 		c.emit(code.OpArrayUpdate)
 		s, _ := c.symTable.Resolve(node.Old.TokenLiteral())
-		c.updateScope(s)
+		c.setScope(s)
 	default:
 		c.NewErrorF("unknown ast type %s.", reflect.TypeOf(node).String())
 	}
@@ -458,9 +464,22 @@ func (c *Compiler) replaceLast(target code.Opcode) {
 func (c *Compiler) getScope(s parser.Symbol) {
 	switch s.ScopeType {
 	case parser.Global:
-		c.emit(code.OpGetGlobal, s.Id)
+		if c.isLastIns(code.OpSetGlobal) &&
+			code.ReadUint16(c.scope[c.scopeIdx].instructions[len(c.curInstruction())-2:]) == uint16(s.Id) {
+			opIdx := c.scope[c.scopeIdx].lastIns.offset
+			c.scope[c.scopeIdx].instructions[opIdx] = byte(code.OpUpdateGlobal)
+		} else {
+			c.emit(code.OpGetGlobal, s.Id)
+		}
 	case parser.Local:
-		c.emit(code.OpGetLocal, s.Id)
+		if c.isLastIns(code.OpSetLocal) &&
+			code.ReadUint16(c.scope[c.scopeIdx].instructions[len(c.curInstruction())-2:]) == uint16(s.Id) {
+			opIdx := c.scope[c.scopeIdx].lastIns.offset
+			c.scope[c.scopeIdx].instructions[opIdx] = byte(code.OpUpdateLocal)
+
+		} else {
+			c.emit(code.OpGetLocal, s.Id)
+		}
 	case parser.BuiltIn:
 		c.emit(code.OpGetBuiltin, s.Id)
 	}
@@ -472,15 +491,6 @@ func (c *Compiler) setScope(s parser.Symbol) {
 		c.emit(code.OpSetGlobal, s.Id)
 	case parser.Local:
 		c.emit(code.OpSetLocal, s.Id)
-	}
-}
-
-func (c *Compiler) updateScope(s parser.Symbol) {
-	switch s.ScopeType {
-	case parser.Global:
-		c.emit(code.OpUpdateGlobal, s.Id)
-	case parser.Local:
-		c.emit(code.OpUpdateLocal, s.Id)
 	}
 }
 

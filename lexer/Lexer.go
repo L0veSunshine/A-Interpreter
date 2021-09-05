@@ -256,6 +256,9 @@ LOOP:
 			return tokens.NToken(tokens.Float, string(value), l.Loc)
 		}
 		return tokens.NToken(tokens.Dot, ".", loc)
+	case l.cur.Equal(";"):
+		l.advance(1)
+		return tokens.NToken(tokens.Semi, ";", loc)
 	case l.cur.Equal("\n"):
 		l.advance(1)
 		return tokens.NToken(tokens.LF, "LF", loc)

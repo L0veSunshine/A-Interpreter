@@ -494,7 +494,7 @@ func (p *Parser) parseBlockStatement() ast.BlockStatement {
 }
 
 func (p *Parser) parseIfExpression() ast.Expression {
-	token := *p.curToken //if
+	token := *p.curToken // token if
 	p.eat(tokens.If)
 	p.eat(tokens.LParen)
 	cond := p.parseExpr(LOWEST)
@@ -526,17 +526,39 @@ func (p *Parser) parseForExpr() ast.Expression {
 	token := *p.curToken //token 'for'
 	p.eat(tokens.For)
 	p.eat(tokens.LParen)
-	cond := p.parseExpr(LOWEST)
-	p.next()
+	var init, eachOpt ast.Statement
+	var cond ast.Expression
+	if p.curToken.Type == tokens.RParen {
+		goto Res
+	}
+	if p.curToken.Type != tokens.Semi {
+		init = p.parseStatement()
+		p.next()
+	}
+	if p.curToken.Type == tokens.Semi {
+		p.eat(tokens.Semi)
+		cond = p.parseExpr(LOWEST)
+		p.next()
+	}
+	if p.curToken.Type == tokens.Semi && p.peekToken.Type != tokens.RParen {
+		p.eat(tokens.Semi)
+		eachOpt = p.parseStatement()
+		p.next()
+	} else {
+		p.eat(tokens.Semi)
+	}
 	p.eat(tokens.RParen)
 	if !p.find(tokens.LBRACE) {
-		p.NewError(`loop need warped by "{}".`)
+		p.NewError(`loop body need warped by "{}".`)
 	}
+Res:
 	loop := p.parseBlockStatement()
 	return ast.ForExpression{
-		Token:     token,
-		Condition: cond,
-		Loop:      &loop,
+		Token:       token,
+		Condition:   cond,
+		InitCond:    init,
+		EachOperate: eachOpt,
+		Loop:        &loop,
 	}
 }
 

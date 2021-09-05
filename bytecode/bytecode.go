@@ -97,7 +97,7 @@ func (b *Bytecode) decodeFunc() string {
 	for _, obj := range b.Constants {
 		if obj.Type() == object.CompiledFuncObj {
 			funcObj := obj.(object.CompiledFunc)
-			sb.WriteString(fmt.Sprintf(`Disassembly of <FunctionObject %s at line %d>:`,
+			sb.WriteString(fmt.Sprintf(`Disassembly of <FunctionObject "%s" at line %d>:`,
 				funcObj.FnName, funcObj.LineLoc))
 			sb.WriteString("\n")
 			s := parser.Search(funcObj.FnName, b.Symbols)

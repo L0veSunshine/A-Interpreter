@@ -158,18 +158,20 @@ if(res>=2){
 res=res+10}`
 
 var s18 = `
-var start=45
+var start=35
 var cache={}
 def fib(x){
-if(x<=1){
-return x}else{
-if (cache[x]!=none){
-	return cache[x]
-}else{
-var res=fib(x-1)+fib(x-2)
-cache[x]=res
-return res}
-}
+	if(x<=1){
+		return x
+	}else{
+		if (cache[x]!=none){
+			return cache[x]
+		}else{
+			var res=fib(x-1)+fib(x-2)
+			cache[x]=res
+			return res
+		}
+	}
 }
 start=fib(start)
 print(start)`
@@ -178,7 +180,7 @@ var s19 = `
 def sum(){
 var s=0
 var start=0
-for(start<=200000){
+for(;start<=200000;){
 	if(start%2==0){
 		s=s+start
 	}
@@ -201,23 +203,25 @@ print(add())`
 var s21 = `
 var G=100
 def f1(){
-var a=0
-var sum=0
-for(a<=50){
-if(a%2==0){
-sum=sum+a}
-a=a+1}
-return sum
+	var a=0
+	var sum=0
+	for(;a<=50;){
+		if(a%2==0){
+		sum=sum+a
+		}
+		a=a+1
+	}
+	return sum
 }
 def f2(){
-var r=f1()
-var s=2
-r=r/10+1.1*s
-return r
+	var r=f1()
+	var s=2
+	r=r/10+1.1*s
+	return r
 }
 def f3(){
-var tx=f2()
-return tx/2+G/10
+	var tx=f2()
+	return tx/2+G/10
 }
 var to=10
 print(to+f3())
@@ -277,11 +281,11 @@ print(a)
 var s27 = `
 var b=[]
 var s=0
-for (s<20000){
+for (;s<20000;){
 b.append(s)
 s=s+1
 }
-for (s>10000){
+for (;s>10000;){
 b.pop()
 s=s-1
 }
@@ -312,7 +316,7 @@ var s29 = `
 var b="hello world ni hao"
 print(b.split(" "))
 var s=0
-for (s<len(b)){
+for (;s<len(b);){
 var t=b[s]
 if(t!=" "){
 print(s+" --"+t)
@@ -320,9 +324,30 @@ print(s+" --"+t)
 s=s+1}
 `
 
+var s30 = `
+def sayhi(){
+	print("hi")
+}
+def sayhello(){
+	print("hello")
+}
+print(sayhi())
+for (var s=-10;s<10;s=s+3){
+	sayhello()
+	s+=2
+}
+`
+var s31 = `
+var c=0
+for(var a=0;a<=100;a+=3){
+	c+=a
+}
+print(c)
+`
+
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s18)
+	lex := lexer.NewLexer(s31)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
