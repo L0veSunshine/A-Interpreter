@@ -174,6 +174,7 @@ def fib(x){
 	}
 }
 start=fib(start)
+print(cache)
 print(start)`
 
 var s19 = `
@@ -340,14 +341,27 @@ for (var s=-10;s<10;s=s+3){
 var s31 = `
 var c=0
 for(var a=0;a<=100;a+=3){
-	c+=a
+	print(a,c)
+	c=a+c
 }
 print(c)
+`
+var s32 = `
+var cache={}
+cache["1"]=999
+cache["2"]=111
+cache["3"]=777
+cache["4"]=221
+var a=0
+for(var x=0;x<10000000;x+=1){
+	a=cache["1"]
+}
+print(a)
 `
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s31)
+	lex := lexer.NewLexer(s32)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()

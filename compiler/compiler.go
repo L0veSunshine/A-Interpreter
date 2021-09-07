@@ -356,7 +356,7 @@ func (c *Compiler) compile(node ast.Node) {
 		c.compile(node.New)
 		c.compile(node.Old)
 		c.compile(node.Key)
-		c.emit(code.OpArrayUpdate)
+		c.emit(code.OpUpdate)
 		s, _ := c.symTable.Resolve(node.Old.TokenLiteral())
 		c.setScope(s)
 	default:

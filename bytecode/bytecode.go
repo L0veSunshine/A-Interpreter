@@ -49,7 +49,7 @@ func (b *Bytecode) InsToString(ins code.Instructions, start, indent int, scope *
 
 func (b *Bytecode) String() string {
 	s := parser.Search("Base", b.Symbols)
-	return b.InsToString(b.Instruction, 1, 4, s)
+	return b.InsToString(b.Instruction, 1, 6, s)
 }
 
 func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.SymTable) string {
@@ -101,7 +101,7 @@ func (b *Bytecode) decodeFunc() string {
 				funcObj.FnName, funcObj.LineLoc))
 			sb.WriteString("\n")
 			s := parser.Search(funcObj.FnName, b.Symbols)
-			sb.WriteString(b.InsToString(funcObj.Instructions, 1, 4, s))
+			sb.WriteString(b.InsToString(funcObj.Instructions, 1, 6, s))
 			sb.WriteString("\n\n")
 		}
 	}

@@ -49,7 +49,7 @@ const (
 	OpBuildArray
 	OpMakeSlice
 	OpMakeMap
-	OpArrayUpdate
+	OpUpdate
 
 	OpIndex
 

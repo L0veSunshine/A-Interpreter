@@ -247,7 +247,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
-		case code.OpArrayUpdate:
+		case code.OpUpdate:
 			err := vm.arrayUpdate()
 			if err != nil {
 				return err

@@ -45,7 +45,7 @@ var Definitions = map[Opcode]Definition{
 	OpSetLocal:     {"OpSetLocal", []int{2}},
 	OpBuildArray:   {"OpBuildArray", []int{2}},
 	OpIndex:        {"OpIndex", []int{}},
-	OpArrayUpdate:  {"OpArrayUpdate", []int{}},
+	OpUpdate:       {"OpUpdate", []int{}},
 	OpMakeSlice:    {"OpMakeSlice", []int{}},
 	OpMakeMap:      {"OpMakeMap", []int{2}},
 	OpGetBuiltin:   {"OpGetBuiltin", []int{1}},
