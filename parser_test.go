@@ -95,14 +95,16 @@ var t=15
 var i=10/2
 var const=0
 var tmp=9999
-for(tmp>0.000000001){
-i=i-(i**2-t)/(2*i)
-const=const+1
-if(i**2-t>0){
-tmp=i**2-t}else{
-tmp=-(i**2-t)}
+for(;tmp>0.000000001;){
+	i=i-(i**2-t)/(2*i)
+	const=const+1
+	if(i**2-t>0){
+		tmp=i**2-t
+	}else{
+		tmp=-(i**2-t)
+	}
 }
-i`
+print(i)`
 
 var s14 = `true ==(1<=-1)`
 
@@ -111,7 +113,7 @@ def sqrt(t) {
 var i=10/2
 var const=0
 var tmp=9999
-for(tmp>0.000000001){
+for(;tmp>0.000000001;){
 i=i-(i**2-t)/(2*i)
 const=const+1
 if(i**2-t>0){
@@ -121,16 +123,16 @@ tmp=-(i**2-t)}
 return i}
 var a=0
 var x=0
-for (a<1000){
+for (;a<1000;){
 var x=sqrt(sqrt(4)+sqrt(sqrt(1)+sqrt(4)))
 a=a+1}
-x
+print(x)
 `
 
 var s16 = `
 var idx=0
 var s=""
-for(idx<10){
+for(;idx<10;){
 s=s+"你好"
 print(s)
 idx=idx+1
@@ -141,7 +143,7 @@ def sqrt(t) {
 var i=10/2
 var const=0
 var tmp=9999
-for(tmp>0.000000001){
+for(;tmp>0.000000001;){
 i=i-(i**2-t)/(2*i)
 const=const+1
 if(i**2-t>0){
@@ -151,11 +153,14 @@ tmp=-(i**2-t)}
 return i}
 var a=0
 var res=0
-for (a<1000000){
+for (;a<1000;){
 res=sqrt(sqrt(4)+sqrt(9))
 a=a+1}
 if(res>=2){
-res=res+10}`
+res=res+10}
+res+=2
+res-=2
+print(res)`
 
 var s18 = `
 var start=35
@@ -333,7 +338,7 @@ def sayhello(){
 	print("hello")
 }
 print(sayhi())
-for (var s=-10;s<10;s=s+3){
+for (var s=-10;s<10;s+=3){
 	sayhello()
 	s+=2
 }
@@ -351,17 +356,24 @@ var cache={}
 cache["1"]=999
 cache["2"]=111
 cache["3"]=777
-cache["4"]=221
+cache["4"]=[1,2,3]
 var a=0
-for(var x=0;x<10000000;x+=1){
+var x=0
+var loop=100000000
+for(;loop>1;x+=1){
 	a=cache["1"]
+	if (x==100){
+		break	
+	}
 }
+print(x)
 print(a)
+print(type(cache["4"]))
 `
 
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
-	lex := lexer.NewLexer(s32)
+	lex := lexer.NewLexer(s19)
 	fmt.Println(lex.Array())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
@@ -387,7 +399,7 @@ func TestParser_Parse(t *testing.T) {
 func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	lex := lexer.NewLexer(s10)
+	lex := lexer.NewLexer(s17)
 	p := parser.NewParser(lex)
 	ast := p.Parse()
 	//if !p.HasError() {

@@ -22,7 +22,6 @@ func (b *Bytecode) Ins() string {
 	sb.WriteString(b.decodeFunc())
 
 	sb.WriteString(fmt.Sprintf("%30s\n", "<Main Function>"))
-	//sb.WriteString(ls)
 	sb.WriteString(b.String() + "\n")
 	sb.WriteString(ls)
 	return sb.String()

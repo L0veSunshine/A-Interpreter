@@ -369,7 +369,8 @@ func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
 	case code.OpNotEQ:
 		res = utils.Hash(left) != utils.Hash(right)
 	default:
-		return fmt.Errorf(format.Alert+"unsupport operator for object: %d", op)
+		return fmt.Errorf(format.Alert+"unsupport operator for object(%s,%s): %d", left.Inspect(),
+			right.Inspect(), op)
 	}
 	return vm.replace(nativeBoolToBool(res))
 }

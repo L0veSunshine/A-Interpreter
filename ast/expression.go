@@ -369,3 +369,16 @@ func (mc MethodCall) Str() string {
 	}
 	return sb.String()
 }
+
+type BreakExpr struct {
+	Token tokens.Token
+}
+
+func (b BreakExpr) expressionNode() {}
+func (b BreakExpr) TokenLiteral() string {
+	return b.Token.Literal
+}
+
+func (b BreakExpr) Str() string {
+	return b.Token.Literal
+}

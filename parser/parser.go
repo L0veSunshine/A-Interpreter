@@ -166,6 +166,8 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseReturnStatement()
 	case tokens.Func:
 		return p.parseFuncStatement()
+	case tokens.Break:
+		return p.parseBreakStmt()
 	case tokens.LF:
 		p.next()
 		return p.parseStatement()
@@ -176,6 +178,10 @@ func (p *Parser) parseStatement() ast.Statement {
 		}
 		return res
 	}
+}
+func (p *Parser) parseBreakStmt() ast.Statement {
+	token := p.curToken
+	return ast.ExprStatement{Expression: ast.BreakExpr{Token: *token}}
 }
 
 func (p *Parser) parseMethodCallStmt() ast.Statement {

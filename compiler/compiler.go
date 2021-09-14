@@ -22,6 +22,7 @@ type Compiler struct {
 	scopeIdx    int
 	symTable    *parser.SymTable
 	interpreter bool
+	tmpOpPos    []InsPosInfo
 }
 
 func NewScope() CompilationScope {
@@ -42,6 +43,7 @@ func NewCompiler() *Compiler {
 		constants: NewConstTable(),
 		scope:     []CompilationScope{rootScope},
 		scopeIdx:  0,
+		tmpOpPos:  []InsPosInfo{},
 	}
 }
 
@@ -67,20 +69,20 @@ func (c *Compiler) Debug() {
 	}
 }
 
-func (c *Compiler) compile(node ast.Node) {
+func (c *Compiler) compile(node ast.Node, optimize bool) {
 	switch node := node.(type) {
 	case ast.Program:
 		for _, s := range node.Statements {
-			c.compile(s)
+			c.compile(s, optimize)
 		}
 	case *ast.BlockStatement:
 		for _, s := range node.Statements {
-			c.compile(s)
+			c.compile(s, optimize)
 		}
 	case ast.ExprStatement:
-		c.compile(node.Expression)
+		c.compile(node.Expression, optimize)
 	case ast.FuncStatement:
-		c.compile(node.Expression)
+		c.compile(node.Expression, optimize)
 	case ast.IntNode:
 		numObj := object.Int{Value: node.Value}
 		consIdx := c.constants.AddObj(numObj)
@@ -103,7 +105,7 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.NoneNode:
 		c.emit(code.OpNull)
 	case ast.PrefixExpr:
-		c.compile(node.Right)
+		c.compile(node.Right, optimize)
 		switch node.Op.Type {
 		case tokens.Plus:
 			c.emit(code.OpPlus)
@@ -117,8 +119,8 @@ func (c *Compiler) compile(node ast.Node) {
 	case ast.InfixExpr:
 		switch node.Op.Type {
 		case tokens.LT, tokens.LTEq:
-			c.compile(node.Right)
-			c.compile(node.Left)
+			c.compile(node.Right, optimize)
+			c.compile(node.Left, optimize)
 			switch node.Op.Type {
 			case tokens.LT:
 				c.emit(code.OpGT)
@@ -134,8 +136,8 @@ func (c *Compiler) compile(node ast.Node) {
 			if !ok {
 				c.NewErrorF("Identifier %s was not defined", s.Name)
 			}
-			c.compile(node.Left)
-			c.compile(node.Right)
+			c.compile(node.Left, optimize)
+			c.compile(node.Right, optimize)
 			switch node.Op.Type {
 			case tokens.IPlus:
 				c.emit(code.OpAdd)
@@ -152,8 +154,8 @@ func (c *Compiler) compile(node ast.Node) {
 			}
 			c.setScope(s)
 		default:
-			c.compile(node.Left)
-			c.compile(node.Right)
+			c.compile(node.Left, optimize)
+			c.compile(node.Right, optimize)
 			switch node.Op.Type {
 			case tokens.Plus:
 				c.emit(code.OpAdd)
@@ -184,41 +186,56 @@ func (c *Compiler) compile(node ast.Node) {
 			}
 		}
 	case ast.IfExpression:
-		c.compile(node.Condition)
+		c.compile(node.Condition, optimize)
 		jumpNotTruePos := c.emit(code.OpJumpNotTrue, 9999)
-		c.compile(node.Consequence)
+		c.compile(node.Consequence, optimize)
 		jumpPos := c.emit(code.OpJump, 9999)
 		afterConSeqPos := len(c.curInstruction())
 		c.changeOperand(jumpNotTruePos, afterConSeqPos)
-		if node.Alternative == nil {
-			c.emit(code.OpNull)
-		} else {
-			c.compile(node.Alternative)
+		if node.Alternative != nil {
+			c.compile(node.Alternative, optimize)
+			c.emit(code.OpPop)
 		}
-		c.emit(code.OpPop)
 		afterAlterPos := len(c.curInstruction())
 		c.changeOperand(jumpPos, afterAlterPos)
 	case ast.ForExpression:
 		if node.InitCond != nil {
-			c.compile(node.InitCond)
+			c.compile(node.InitCond, false)
 		}
-		forStatPos := len(c.curInstruction())
-		c.compile(node.Condition)
+		forStartPos := len(c.curInstruction())
+		c.compile(node.Condition, false)
 		breakPos := c.emit(code.OpJumpNotTrue, 9999)
-		c.compile(node.Loop)
+		c.compile(node.Loop, true)
 		if node.EachOperate != nil {
-			c.compile(node.EachOperate)
+			c.compile(node.EachOperate, false)
 		}
-		c.emit(code.OpJump, forStatPos)
-		c.changeOperand(breakPos, len(c.curInstruction()))
+		c.emit(code.OpJump, forStartPos)
+		forEndPos := len(c.curInstruction())
+		c.changeOperand(breakPos, forEndPos)
+		for _, point := range c.tmpOpPos {
+			if point.PType == BreakPoint {
+				c.changeOperand(point.Pos, forEndPos)
+			}
+			if point.PType == LoopStart {
+				c.changeOperand(point.Pos, forStartPos)
+			}
+		}
+		c.tmpOpPos = append(c.tmpOpPos[:0])
 		c.emit(code.OpNull)
 		c.emit(code.OpPop)
+	case ast.BreakExpr:
+		pos := c.emit(code.OpJump, 9999)
+		posInfo := InsPosInfo{
+			Pos:   pos,
+			PType: BreakPoint,
+		}
+		c.tmpOpPos = append(c.tmpOpPos, posInfo)
 	case ast.MethodCall:
-		c.compile(node.Left)
+		c.compile(node.Left, optimize)
 		for i, method := range node.Methods {
-			c.compile(method)
+			c.compile(method, optimize)
 			for _, args := range node.Arguments[i] {
-				c.compile(args)
+				c.compile(args, optimize)
 			}
 			c.emit(code.OpCallMethod, len(node.Arguments[i]))
 			if reflect.TypeOf(node.Left).Name() == "IdentNode" {
@@ -233,7 +250,7 @@ func (c *Compiler) compile(node ast.Node) {
 			}
 		}
 	case ast.MethodCallStmt:
-		c.compile(node.Call)
+		c.compile(node.Call, optimize)
 		c.emit(code.OpPop)
 	case ast.MethodNode:
 		s, ok := c.symTable.Methods.FindIdx(node.Value)
@@ -242,14 +259,14 @@ func (c *Compiler) compile(node ast.Node) {
 		}
 		c.emit(code.OpLoadMethod, s)
 	case ast.VarStatement:
-		c.compile(node.Value)
+		c.compile(node.Value, optimize)
 		s, ok := c.symTable.Resolve(node.Indent.Value)
 		if !ok {
 			c.NewErrorF("undefined variable %s.", strconv.Quote(node.Indent.Value))
 		}
 		c.setScope(s)
 	case ast.VarMethodCall:
-		c.compile(node.Value)
+		c.compile(node.Value, optimize)
 		if c.isLastIns(code.OpPop) {
 			c.removeLastOp()
 		}
@@ -270,10 +287,10 @@ func (c *Compiler) compile(node ast.Node) {
 			}
 			c.emit(code.OpClosure, idx)
 		} else {
-			c.getScope(s)
+			c.getScope(s, optimize)
 		}
 	case ast.AssignStatement:
-		c.compile(node.Statement)
+		c.compile(node.Statement, optimize)
 		s, ok := c.symTable.Resolve(node.Identifier.Value)
 		if !ok {
 			c.NewErrorF("variable %s is undefined but used.", strconv.Quote(node.Identifier.Value))
@@ -285,7 +302,7 @@ func (c *Compiler) compile(node ast.Node) {
 		c.symTable = parser.Search(node.Name, c.symTable)
 		paramsCount := len(node.Parameters)
 		fnIdx := c.constants.RegFunc(node.Name, paramsCount)
-		c.compile(node.FuncBody)
+		c.compile(node.FuncBody, optimize)
 		if c.isLastIns(code.OpPop) {
 			c.replaceLast(code.OpReturnVal)
 		}
@@ -309,53 +326,53 @@ func (c *Compiler) compile(node ast.Node) {
 		}
 	case ast.ReturnStatement:
 		if node.ReturnVal != nil {
-			c.compile(node.ReturnVal)
+			c.compile(node.ReturnVal, optimize)
 		} else {
 			c.emit(code.OpNull)
 		}
 		c.emit(code.OpReturnVal)
 	case ast.Array:
 		for _, e := range node.Elements {
-			c.compile(e)
+			c.compile(e, optimize)
 		}
 		c.emit(code.OpBuildArray, len(node.Elements))
 	case ast.IndexSlice:
 		if node.Start != nil {
-			c.compile(node.Start)
+			c.compile(node.Start, optimize)
 		} else {
 			c.emit(code.OpNull)
 		}
 		if node.End != nil {
-			c.compile(node.End)
+			c.compile(node.End, optimize)
 		} else {
 			c.emit(code.OpNull)
 		}
 		if node.Step != nil {
-			c.compile(node.Step)
+			c.compile(node.Step, optimize)
 		} else {
 			c.emit(code.OpNull)
 		}
 		c.emit(code.OpMakeSlice)
 	case ast.IndexExpression:
-		c.compile(node.Left)
-		c.compile(node.Index)
+		c.compile(node.Left, optimize)
+		c.compile(node.Index, optimize)
 		c.emit(code.OpIndex)
 	case ast.FuncCallExpr:
-		c.compile(node.Function)
+		c.compile(node.Function, optimize)
 		for _, arg := range node.Arguments {
-			c.compile(arg)
+			c.compile(arg, optimize)
 		}
 		c.emit(code.OpCallFunc, len(node.Arguments))
 	case ast.Map:
 		for i := 0; i < len(node.Keys); i++ {
-			c.compile(node.Keys[i])
-			c.compile(node.Items[i])
+			c.compile(node.Keys[i], optimize)
+			c.compile(node.Items[i], optimize)
 		}
 		c.emit(code.OpMakeMap, len(node.Keys)*2)
 	case ast.ExpressionAssign:
-		c.compile(node.New)
-		c.compile(node.Old)
-		c.compile(node.Key)
+		c.compile(node.New, optimize)
+		c.compile(node.Old, optimize)
+		c.compile(node.Key, optimize)
 		c.emit(code.OpUpdate)
 		s, _ := c.symTable.Resolve(node.Old.TokenLiteral())
 		c.setScope(s)
@@ -365,7 +382,7 @@ func (c *Compiler) compile(node ast.Node) {
 }
 
 func (c *Compiler) Compile(node ast.Node) {
-	c.compile(node)
+	c.compile(node, true)
 	c.handleNoCall()
 	//need optimize
 }
@@ -461,10 +478,10 @@ func (c *Compiler) replaceLast(target code.Opcode) {
 	c.scope[c.scopeIdx].lastIns.op = target
 }
 
-func (c *Compiler) getScope(s parser.Symbol) {
+func (c *Compiler) getScope(s parser.Symbol, optimize bool) {
 	switch s.ScopeType {
 	case parser.Global:
-		if c.isLastIns(code.OpSetGlobal) &&
+		if optimize && c.isLastIns(code.OpSetGlobal) &&
 			code.ReadUint16(c.scope[c.scopeIdx].instructions[len(c.curInstruction())-2:]) == uint16(s.Id) {
 			opIdx := c.scope[c.scopeIdx].lastIns.offset
 			c.scope[c.scopeIdx].instructions[opIdx] = byte(code.OpUpdateGlobal)
@@ -472,11 +489,10 @@ func (c *Compiler) getScope(s parser.Symbol) {
 			c.emit(code.OpGetGlobal, s.Id)
 		}
 	case parser.Local:
-		if c.isLastIns(code.OpSetLocal) &&
+		if optimize && c.isLastIns(code.OpSetLocal) &&
 			code.ReadUint16(c.scope[c.scopeIdx].instructions[len(c.curInstruction())-2:]) == uint16(s.Id) {
 			opIdx := c.scope[c.scopeIdx].lastIns.offset
 			c.scope[c.scopeIdx].instructions[opIdx] = byte(code.OpUpdateLocal)
-
 		} else {
 			c.emit(code.OpGetLocal, s.Id)
 		}

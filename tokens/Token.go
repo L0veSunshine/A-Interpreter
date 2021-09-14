@@ -48,6 +48,7 @@ const (
 	None     = "None"
 	If       = "If"
 	Else     = "Else"
+	Break    = "Break"
 	Func     = "Func"
 	Return   = "Return"
 	Assign   = "Assign"
@@ -77,6 +78,7 @@ var Reserved = map[string]string{
 	"or":     Or,
 	"not":    Not,
 	"none":   None,
+	"break":  Break,
 }
 
 type Locate struct {
