@@ -55,6 +55,37 @@ c.SetOptimize(false)
 直接把值留在操作数栈上，而 IR 必须"存槽位 + 读回"，每个这样的点会多 3 字节；
 循环变量的 phi 拷贝同理（等实现 phi 拷贝合并后消失）。
 
+## 性能
+
+`vm` 包有基准测试（`go test -run XXX -bench . ./vm/`）。解释器循环里有几处结构性开销，
+已经按"先测再改"的顺序处理：
+
+| 项 | 做法 | 依据 |
+| --- | --- | --- |
+| 当前帧 | 把 `frame`/`ins`/`ip` 提到局部变量，只在 push/pop 帧后重新装载 | `currentFrame()` 原本每条指令要调用 3~6 次，每次都做"取下标+边界检查+乘 sizeof(Frame)"；CPython 3.11 的"帧留在局部变量里"是同一思路 |
+| 帧的局部槽位 | 所有帧共享一块按栈方式分配/回收的槽位区（`vm.locals`），返回时只回退 `localsTop` | 原来每次调用都要 `make([]object.Object, n)`；CPython 3.11 的连续 frame chunk 同理 |
+| 小整数/布尔 | `-256..2048` 的整数与 `true`/`false` 常驻单例 | 每次算术结果装箱都是一次堆分配 |
+| 算术分派 | 用类型断言代替 `Type()` 字符串比较 | `Type()` 返回的是字符串，一次算术要比较好几轮字符串 |
+| 数组字面量 | `make` + `copy` 取代 append 循环 | 避免多次扩容 |
+
+实测（1000 次迭代的整数循环 / fib(18) / 数组下标 / 深递归 300 层）：
+
+```
+                    优化前          优化后
+LoopArith           139558 ns/op   100917 ns/op   (-28%)
+FibRecursive       1099901 ns/op   752382 ns/op   (-32%)
+ArrayIndex           31590 ns/op    22202 ns/op   (-30%)
+DeepRecursion        35154 ns/op    28380 ns/op   (-19%)
+
+allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
+```
+
+还没做、但值得做的（按收益排序）：**超指令/快速化**（把 `GetLocal+GetLocal+Add` 合成一条，
+对应 CPython 3.12 的专用指令，需要新增操作码并贯穿 code/compiler/ir/反汇编）、
+**tagged value / NaN-boxing**（彻底去掉 `object.Object` 接口装箱，改为 Go 里的联合表示，
+收益最大但改动面也最大）、直接线索化派发（Go 没有 computed goto，
+只能用函数表，实际未必比现在这个密集 switch 快，需要实测）。
+
 ## 语义要点
 
 - `OpDiv` 对整数也返回浮点；`OpMod` 对整数返回整数；`OpPow` 总返回浮点。

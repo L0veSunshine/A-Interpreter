@@ -25,12 +25,48 @@ const (
 	// InitFrameCount 是调用栈的初始容量，同样按需增长，上限 MaxFrame
 	InitFrameCount = 64
 	MaxFrame       = 1 << 16
+	// InitLocalsSize 是所有帧共享的局部槽位区的初始容量（槽位数），按需翻倍
+	InitLocalsSize = 256
 )
 
 var (
 	StackIdxErr = fmt.Errorf(format.Alert + "invalid index")
 	NullObj     = object.Null{}
 )
+
+// 解释执行时，整数运算结果和小布尔值是最高频的对象。
+// 把它们做成单例，省掉每次装箱的一次堆分配（CPython 同样缓存小整数）。
+const (
+	smallIntMin = -256
+	smallIntMax = 2048
+)
+
+var (
+	smallInts [smallIntMax - smallIntMin + 1]object.Object
+	trueObj   object.Object = object.Boolean{Value: true}
+	falseObj  object.Object = object.Boolean{Value: false}
+)
+
+func init() {
+	for i := range smallInts {
+		smallInts[i] = object.Int{Value: i + smallIntMin}
+	}
+}
+
+// intObj 返回整数对象，落在缓存区间内时复用单例。
+func intObj(v int) object.Object {
+	if v >= smallIntMin && v <= smallIntMax {
+		return smallInts[v-smallIntMin]
+	}
+	return object.Int{Value: v}
+}
+
+func boolObj(b bool) object.Object {
+	if b {
+		return trueObj
+	}
+	return falseObj
+}
 
 type VM struct {
 	constants []object.Object
@@ -41,6 +77,11 @@ type VM struct {
 	maxSP    int
 	frames   []Frame
 	frameIdx int
+	// locals 是所有帧共享的局部槽位区：按栈方式分配/回收，
+	// 这样每次函数调用都不必再 make 一个切片。
+	// （CPython 3.11 用连续的 frame chunk 存放帧和槽位，思路相同。）
+	locals    []object.Object
+	localsTop int
 	// lastPop 记录"最后一条语句级表达式产生的值"，供 REPL / 测试读取。
 	// 之前靠"值留在栈顶"实现，正是循环泄漏栈槽的根源。
 	lastPop object.Object
@@ -56,6 +97,7 @@ func NewVM() *VM {
 		sp:       0, //stack pointer
 		frames:   make([]Frame, InitFrameCount),
 		frameIdx: 1,
+		locals:   make([]object.Object, InitLocalsSize),
 	}
 }
 
@@ -73,6 +115,12 @@ func (vm *VM) LastPop() object.Object {
 // 用来验证"循环不再每轮泄漏一个栈槽"。
 func (vm *VM) MaxStackDepth() int {
 	return vm.maxSP
+}
+
+// LocalsDepth 返回共享局部槽位区当前被占用的槽位数。
+// 帧返回后应当回到调用前的高度，用来验证"调用不再泄漏槽位"。
+func (vm *VM) LocalsDepth() int {
+	return vm.localsTop
 }
 
 func (vm *VM) push(obj object.Object) error {
@@ -126,37 +174,52 @@ func (vm *VM) replace(obj object.Object) error {
 }
 
 func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
-	var ip int
-	var ins code.Instructions
 	var op code.Opcode
 	var varIdx uint16
 
-	mainVars := make([]object.Object, bytecode.MainLocals)
-	for i := range mainVars {
-		mainVars[i] = NullObj
-	}
 	// main 帧拥有独立的局部槽位；全局变量单独放在 vm.globals 里
-	vm.frames[0] = NewFrame(bytecode.Instruction, &mainVars, 0).WithLines(bytecode.Lines)
+	// 同一个 VM 可以被重新 Run（REPL/重试），因此执行状态要复位：
+	// 上一次如果在中途报错，帧栈和操作数栈都可能是有残留的。
+	vm.sp = 0
+	vm.maxSP = 0
+	vm.frameIdx = 1
+	vm.localsTop = 0
+	mainVars := vm.allocLocals(bytecode.MainLocals)
+	vm.frames[0] = NewFrame(bytecode.Instruction, mainVars, 0).WithLines(bytecode.Lines)
+	vm.frames[0].localsBase = 0
 	vm.frames[0].Name = "<main>"
 	vm.constants = bytecode.Constants
+
+	// 把"当前帧"和它的指令流、指令指针提到局部变量里。
+	// 这是解释器循环里最值得做的一处优化：Frame 是个大结构体，
+	// 每执行一条指令都要做几次 vm.currentFrame() 意味着
+	// "取 frameIdx + 边界检查 + 乘以 sizeof(Frame) + 解引用"，
+	// 而这三样在整个帧的生命周期内都不会变。
+	// （CPython 3.11 的"帧留在寄存器/局部变量里"是同一个思路。）
+	// 只有在 push/pop 帧之后才需要重新装载。
+	frame := vm.currentFrame()
+	ins := frame.ins
+	ip := frame.ip
 
 	// 统一的错误定位：任何从指令执行里冒出来的错误都补上源码行，
 	// 这样调用方拿到的错误信息能直接指到源码（不需要逐处 return 时处理）
 	defer func() {
+		// ip 平时只存在于局部变量里，出错/退出时写回，供 locate 定位
+		if n := vm.frameIdx; n > 0 && n <= len(vm.frames) {
+			vm.frames[n-1].ip = ip
+		}
 		if err != nil {
 			err = vm.locate(err)
 		}
 	}()
 
-	for vm.currentFrame().ip < len(vm.currentFrame().Instructions())-1 {
-		vm.currentFrame().ip++
-		ip = vm.currentFrame().ip
-		ins = vm.currentFrame().Instructions()
+	for ip < len(ins)-1 {
+		ip++
 		op = code.Opcode(ins[ip])
 		switch op {
 		case code.OpConstant:
 			constIdx := code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
+			ip += 2
 			err := vm.push(vm.constants[constIdx])
 			if err != nil {
 				return err
@@ -199,94 +262,110 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			}
 		case code.OpJump:
 			pos := int(code.ReadUint16(ins[ip+1:]))
-			vm.currentFrame().ip = pos - 1
+			ip = pos - 1
 		case code.OpJumpNotTrue:
 			pos := int(code.ReadUint16(ins[ip+1:]))
-			vm.currentFrame().ip += 2 //skip the operand of code.OpJumpNotTrue
+			ip += 2 //skip the operand of code.OpJumpNotTrue
 			cond := vm.pop()
 			boolVal := objToNativeBool(cond)
 			if !boolVal {
-				vm.currentFrame().ip = pos - 1
+				ip = pos - 1
 			}
 		case code.OpSetGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2 //skip the operand of code.OpSetGlobal
+			ip += 2 //skip the operand of code.OpSetGlobal
 			if err := vm.setGlobal(varIdx, vm.pop()); err != nil {
 				return err
 			}
 		case code.OpGetGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2 //skip the operand of code.OpGetGlobal
+			ip += 2 //skip the operand of code.OpGetGlobal
 			err := vm.push(vm.globalAt(varIdx))
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
+			ip += 2 //skip the operand of code.OpUpdate
 			if err := vm.setGlobal(varIdx, vm.top()); err != nil {
 				return err
 			}
 		case code.OpCallFunc:
 			numArgs := code.ReadUint8(ins[ip+1:])
-			vm.currentFrame().ip++
-			err := vm.executeCall(int(numArgs))
-			if err != nil {
+			ip++
+			// 调用可能压入新帧：先把当前位置写回，返回时才能接着执行
+			frame.ip = ip
+			if err := vm.executeCall(int(numArgs)); err != nil {
 				return err
 			}
+			// 帧数组可能扩容（指针失效），必须重新装载
+			frame = vm.currentFrame()
+			ins, ip = frame.ins, frame.ip
 		case code.OpReturnVal:
 			returnVal := vm.pop()
 			if vm.frameIdx <= 1 {
 				return fmt.Errorf(format.Alert + "return outside of a function")
 			}
 
-			frame := vm.popFrame()
-			vm.sp = frame.basePoint - 1
+			ret := vm.popFrame()
+			vm.sp = ret.basePoint - 1
 			if vm.sp < 0 {
 				vm.sp = 0
 			}
+			// 回收这个帧的局部槽位：整段直接还给槽位区，无需逐个清理
+			if ret.localsBase >= 0 && ret.localsBase <= vm.localsTop {
+				vm.localsTop = ret.localsBase
+			}
 
-			err := vm.push(returnVal)
-			if err != nil {
+			if err := vm.push(returnVal); err != nil {
 				return err
 			}
+			frame = vm.currentFrame()
+			ins, ip = frame.ins, frame.ip
 		case code.OpSetLocal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
-			vm.currentFrame().vars[varIdx] = vm.pop()
+			ip += 2
+			frame.vars[varIdx] = vm.pop()
 		case code.OpGetLocal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
-			err := vm.push(vm.localAt(varIdx))
-			if err != nil {
-				return err
+			ip += 2
+			// 热路径，内联 localAt：越界/未赋值都返回 None
+			vars := frame.vars
+			if int(varIdx) < len(vars) && vars[varIdx] != nil {
+				err := vm.push(vars[varIdx])
+				if err != nil {
+					return err
+				}
+			} else {
+				err := vm.push(NullObj)
+				if err != nil {
+					return err
+				}
 			}
 		case code.OpUpdateLocal:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
-			vm.currentFrame().vars[varIdx] = vm.top()
+			ip += 2
+			frame.vars[varIdx] = vm.top()
 		case code.OpGetBuiltin:
 			builtinIdx := code.ReadUint8(ins[ip+1:])
-			vm.currentFrame().ip += 1
+			ip += 1
 			err := vm.push(object.BuiltinFns[builtinIdx].Builtin)
 			if err != nil {
 				return err
 			}
 		case code.OpClosure:
 			fnIdx := code.ReadUint8(ins[ip+1:])
-			vm.currentFrame().ip += 1
+			ip += 1
 			err := vm.push(vm.constants[fnIdx])
 			if err != nil {
 				return err
 			}
 		case code.OpBuildArray:
-			gap := code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
-			var ele []object.Object
-			for i := vm.sp - int(gap); i < vm.sp; i++ {
-				ele = append(ele, vm.stack[i])
-			}
-			vm.sp -= int(gap) //栈指针归位
+			gap := int(code.ReadUint16(ins[ip+1:]))
+			ip += 2
+			ele := make([]object.Object, gap)
+			copy(ele, vm.stack[vm.sp-gap:vm.sp])
+			vm.sp -= gap //栈指针归位
 			err := vm.push(object.Array{Elements: ele})
 			if err != nil {
 				return err
@@ -313,14 +392,14 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			}
 		case code.OpMakeMap:
 			keyLen := code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
+			ip += 2
 			err := vm.makeMap(int(keyLen))
 			if err != nil {
 				return err
 			}
 		case code.OpLoadMethod:
 			varIdx = code.ReadUint16(ins[ip+1:])
-			vm.currentFrame().ip += 2
+			ip += 2
 			mName := bytecode.Symbols.Methods.FindName(int(varIdx))
 			objType := vm.top().Type()
 			var method object.Object
@@ -335,7 +414,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			}
 		case code.OpCallMethod:
 			argsNum := code.ReadUint8(ins[ip+1:])
-			vm.currentFrame().ip += 1
+			ip += 1
 			err := vm.callMethod(int(argsNum))
 			if err != nil {
 				return err
@@ -377,12 +456,23 @@ func (vm *VM) callMethod(argsNum int) error {
 func (vm *VM) executeBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
-	switch {
-	case right.Type() == object.IntObj && left.Type() == object.IntObj:
-		return vm.executeBinOpInt(op, left, right)
-	case right.Type() == object.StringObj || left.Type() == object.StringObj:
+	// 用类型断言代替 Type() 字符串比较：Type() 返回的是字符串，
+	// 每做一次算术都要比较好几轮字符串，而接口断言只比 itab 指针。
+	if l, ok := left.(object.Int); ok {
+		if r, ok := right.(object.Int); ok {
+			return vm.executeBinOpInt(op, l.Value, r.Value)
+		}
+	}
+	if _, ok := left.(object.String); ok {
 		return vm.executeBinOpStr(op, left, right)
-	case right.Type() == object.FloatObj || left.Type() == object.FloatObj:
+	}
+	if _, ok := right.(object.String); ok {
+		return vm.executeBinOpStr(op, left, right)
+	}
+	if _, ok := right.(object.Float); ok {
+		return vm.executeBinOpFloat(op, left, right)
+	}
+	if _, ok := left.(object.Float); ok {
 		return vm.executeBinOpFloat(op, left, right)
 	}
 	return fmt.Errorf(format.Alert+"unsupported types for binary operation: %s(%s) %s(%s) %s",
@@ -392,14 +482,45 @@ func (vm *VM) executeBinOp(op code.Opcode) error {
 func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
-	if (left.Type() == object.IntObj || left.Type() == object.FloatObj) &&
-		(right.Type() == object.IntObj || right.Type() == object.FloatObj) {
-		return vm.compareNumObj(op, left, right)
+	if lv, ok := numOf(left); ok {
+		if rv, ok := numOf(right); ok {
+			var res bool
+			switch op {
+			case code.OpEqual:
+				res = lv == rv
+			case code.OpNotEQ:
+				res = lv != rv
+			case code.OpGT:
+				res = lv > rv
+			case code.OpGTEq:
+				res = lv >= rv
+			case code.OpLT:
+				res = lv < rv
+			case code.OpLTEq:
+				res = lv <= rv
+			default:
+				return fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
+			}
+			return vm.replace(boolObj(res))
+		}
 	}
-	if left.Type() == object.StringObj && right.Type() == object.StringObj {
-		return vm.compareStringObj(op, left, right)
+	if _, ok := left.(object.String); ok {
+		if _, ok := right.(object.String); ok {
+			return vm.compareStringObj(op, left, right)
+		}
 	}
 	return vm.compareObj(op, left, right)
+}
+
+// numOf 把数值对象取成 float64；比较一律按浮点语义（与原实现一致）。
+func numOf(obj object.Object) (float64, bool) {
+	switch v := obj.(type) {
+	case object.Int:
+		return float64(v.Value), true
+	case object.Float:
+		return v.Value, true
+	}
+	return 0, false
 }
 
 func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
@@ -441,43 +562,9 @@ func (vm *VM) compareStringObj(op code.Opcode, left, right object.Object) error 
 	return vm.replace(nativeBoolToBool(res))
 }
 
-func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
-	var leftVal float64
-	var rightVal float64
-	var res bool
-	switch left.(type) {
-	case object.Int:
-		leftVal = float64(left.(object.Int).Value)
-	case object.Float:
-		leftVal = left.(object.Float).Value
-	}
-	switch right.(type) {
-	case object.Int:
-		rightVal = float64(right.(object.Int).Value)
-	case object.Float:
-		rightVal = right.(object.Float).Value
-	}
-	switch op {
-	case code.OpEqual:
-		res = leftVal == rightVal
-	case code.OpNotEQ:
-		res = leftVal != rightVal
-	case code.OpGT:
-		res = leftVal > rightVal
-	case code.OpGTEq:
-		res = leftVal >= rightVal
-	case code.OpLT:
-		res = leftVal < rightVal
-	case code.OpLTEq:
-		res = leftVal <= rightVal
-	default:
-		return fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
-	}
-	return vm.replace(nativeBoolToBool(res))
-}
-
-func nativeBoolToBool(b bool) object.Boolean {
-	return object.Boolean{Value: b}
+// compareNumObj 已合并进 compareBinOp：数值比较不再需要为每个对象做类型分支。
+func nativeBoolToBool(b bool) object.Object {
+	return boolObj(b)
 }
 
 func objToNativeBool(obj object.Object) bool {
@@ -497,9 +584,7 @@ func objToNativeBool(obj object.Object) bool {
 	}
 }
 
-func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
-	leftVal := left.(object.Int).Value
-	rightVal := right.(object.Int).Value
+func (vm *VM) executeBinOpInt(op code.Opcode, leftVal, rightVal int) error {
 	var res int
 	var fRes float64
 	switch op {
@@ -527,7 +612,7 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 	default:
 		return fmt.Errorf(format.Alert+"unknown integer operator: %d", op)
 	}
-	return vm.replace(object.Int{Value: res})
+	return vm.replace(intObj(res))
 }
 
 var DivZeroErr = fmt.Errorf(format.Alert + "division by zero")
@@ -894,6 +979,37 @@ func (vm *VM) localAt(idx uint16) object.Object {
 	return vars[idx]
 }
 
+// allocLocals 从共享槽位区里切出 n 个槽位给新帧，并清零成 None。
+// 槽位区按栈方式使用：帧返回时把 localsTop 退回去即可，不需要回收动作。
+// 扩容时已经存在的帧要把 vars 重新指向新数组。
+func (vm *VM) allocLocals(n int) []object.Object {
+	if n <= 0 {
+		return nil
+	}
+	end := vm.localsTop + n
+	if end > len(vm.locals) {
+		grown := len(vm.locals) * 2
+		if grown < end {
+			grown = end
+		}
+		grownLocals := make([]object.Object, grown)
+		copy(grownLocals, vm.locals[:vm.localsTop])
+		vm.locals = grownLocals
+		for i := 0; i < vm.frameIdx && i < len(vm.frames); i++ {
+			f := &vm.frames[i]
+			if f.localsBase+len(f.vars) <= len(grownLocals) {
+				f.vars = grownLocals[f.localsBase : f.localsBase+len(f.vars)]
+			}
+		}
+	}
+	vars := vm.locals[vm.localsTop:end]
+	for i := range vars {
+		vars[i] = NullObj
+	}
+	vm.localsTop = end
+	return vars
+}
+
 func (vm *VM) pushFrame(frame Frame) error {
 	if vm.frameIdx >= MaxFrame {
 		return fmt.Errorf("%scall stack overflow: call depth exceeded %d while calling %s (line %d)",
@@ -950,16 +1066,15 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 		return fmt.Errorf(format.Alert+"wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
 	}
-	newVars := make([]object.Object, fn.LocalsNum)
 	// 块作用域的槽位不会在块退出时回收，读到"尚未赋值"的槽位应当得到 None，
-	// 而不是 nil（那会在后续类型判断时 panic）
-	for i := range newVars {
-		newVars[i] = NullObj
-	}
+	// 而不是 nil（那会在后续类型判断时 panic）——allocLocals 已经清零。
+	base := vm.localsTop
+	newVars := vm.allocLocals(fn.LocalsNum)
 	for idx, arg := range vm.stack[vm.sp-numArgs : vm.sp] {
 		newVars[idx] = arg
 	}
-	frame := NewFrame(fn.Instructions, &newVars, vm.sp-numArgs).WithLines(fn.Lines)
+	frame := NewFrame(fn.Instructions, newVars, vm.sp-numArgs).WithLines(fn.Lines)
+	frame.localsBase = base
 	frame.Name = fn.FnName
 	frame.Line = fn.LineLoc
 	return vm.pushFrame(frame)
@@ -1017,7 +1132,8 @@ func (vm *VM) debug(operandWidth int) {
 		}
 	}
 	sb.WriteString("]")
+	cur := vm.currentFrame()
 	fmt.Println("Current Frame:" + strconv.Itoa(vm.frameIdx) + " Instruction Pointer:" +
-		strconv.Itoa(vm.currentFrame().ip-operandWidth))
+		strconv.Itoa(cur.ip-operandWidth))
 	fmt.Println("Stack: "+sb.String()+"  Current Pointer:", vm.sp)
 }
