@@ -125,25 +125,45 @@ func (vm *VM) LocalsDepth() int {
 
 func (vm *VM) push(obj object.Object) error {
 	if vm.sp == len(vm.stack) {
-		if len(vm.stack) >= MaxStackSize {
-			f := vm.currentFrame()
-			return fmt.Errorf("%sstack overflow: operand stack exceeded %d slots in %s (line %d)",
-				format.Alert, MaxStackSize, f.Name, f.Line)
+		if err := vm.growStack(); err != nil {
+			return err
 		}
-		grown := len(vm.stack) * 2
-		if grown > MaxStackSize {
-			grown = MaxStackSize
-		}
-		newStack := make([]object.Object, grown)
-		copy(newStack, vm.stack)
-		vm.stack = newStack
 	}
+	vm.put(obj)
+	return nil
+}
+
+// growStack 把操作数栈翻倍；到上限时报栈溢出。
+func (vm *VM) growStack() error {
+	if len(vm.stack) >= MaxStackSize {
+		f := vm.currentFrame()
+		return fmt.Errorf("%sstack overflow: operand stack exceeded %d slots in %s (line %d)",
+			format.Alert, MaxStackSize, f.Name, f.Line)
+	}
+	grown := len(vm.stack) * 2
+	if grown > MaxStackSize {
+		grown = MaxStackSize
+	}
+	newStack := make([]object.Object, grown)
+	copy(newStack, vm.stack)
+	vm.stack = newStack
+	return nil
+}
+
+// put 直接写到栈顶。调用者必须保证栈上还有空间：
+// Run 在每条指令前统一检查一次（一条指令最多压入一个值），
+// 这样热路径上不必每条指令都做函数调用 + 边界检查。
+func (vm *VM) put(obj object.Object) {
 	vm.stack[vm.sp] = obj
 	vm.sp++
 	if vm.sp > vm.maxSP {
 		vm.maxSP = vm.sp
 	}
-	return nil
+}
+
+// readU16 读大端 2 字节操作数；直接用下标避免生成切片头。
+func readU16(ins code.Instructions, pos int) uint16 {
+	return uint16(ins[pos])<<8 | uint16(ins[pos+1])
 }
 
 func (vm *VM) pop() object.Object {
@@ -216,25 +236,23 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	for ip < len(ins)-1 {
 		ip++
 		op = code.Opcode(ins[ip])
-		switch op {
-		case code.OpConstant:
-			constIdx := code.ReadUint16(ins[ip+1:])
-			ip += 2
-			err := vm.push(vm.constants[constIdx])
-			if err != nil {
+		// 一条指令最多压入一个值：在这里统一保证操作数栈还有空位，
+		// 热路径上的 put 就不用再做检查了。
+		if vm.sp >= len(vm.stack) {
+			if err := vm.growStack(); err != nil {
 				return err
 			}
+		}
+		switch op {
+		case code.OpConstant:
+			constIdx := readU16(ins, ip+1)
+			ip += 2
+			vm.put(vm.constants[constIdx])
 		case code.OpTrue, code.OpFalse:
 			if op == code.OpTrue {
-				err := vm.push(nativeBoolToBool(true))
-				if err != nil {
-					return err
-				}
+				vm.put(nativeBoolToBool(true))
 			} else {
-				err := vm.push(nativeBoolToBool(false))
-				if err != nil {
-					return err
-				}
+				vm.put(nativeBoolToBool(false))
 			}
 		case code.OpPop:
 			vm.lastPop = vm.pop()
@@ -256,15 +274,12 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				return err
 			}
 		case code.OpNull:
-			err := vm.push(NullObj)
-			if err != nil {
-				return err
-			}
+			vm.put(NullObj)
 		case code.OpJump:
-			pos := int(code.ReadUint16(ins[ip+1:]))
+			pos := int(readU16(ins, ip+1))
 			ip = pos - 1
 		case code.OpJumpNotTrue:
-			pos := int(code.ReadUint16(ins[ip+1:]))
+			pos := int(readU16(ins, ip+1))
 			ip += 2 //skip the operand of code.OpJumpNotTrue
 			cond := vm.pop()
 			boolVal := objToNativeBool(cond)
@@ -272,26 +287,23 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				ip = pos - 1
 			}
 		case code.OpSetGlobal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2 //skip the operand of code.OpSetGlobal
 			if err := vm.setGlobal(varIdx, vm.pop()); err != nil {
 				return err
 			}
 		case code.OpGetGlobal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2 //skip the operand of code.OpGetGlobal
-			err := vm.push(vm.globalAt(varIdx))
-			if err != nil {
-				return err
-			}
+			vm.put(vm.globalAt(varIdx))
 		case code.OpUpdateGlobal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2 //skip the operand of code.OpUpdate
 			if err := vm.setGlobal(varIdx, vm.top()); err != nil {
 				return err
 			}
 		case code.OpCallFunc:
-			numArgs := code.ReadUint8(ins[ip+1:])
+			numArgs := ins[ip+1]
 			ip++
 			// 调用可能压入新帧：先把当前位置写回，返回时才能接着执行
 			frame.ip = ip
@@ -317,69 +329,49 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				vm.localsTop = ret.localsBase
 			}
 
-			if err := vm.push(returnVal); err != nil {
-				return err
-			}
+			vm.put(returnVal)
 			frame = vm.currentFrame()
 			ins, ip = frame.ins, frame.ip
 		case code.OpSetLocal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2
 			frame.vars[varIdx] = vm.pop()
 		case code.OpGetLocal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2
 			// 热路径，内联 localAt：越界/未赋值都返回 None
 			vars := frame.vars
 			if int(varIdx) < len(vars) && vars[varIdx] != nil {
-				err := vm.push(vars[varIdx])
-				if err != nil {
-					return err
-				}
+				vm.put(vars[varIdx])
 			} else {
-				err := vm.push(NullObj)
-				if err != nil {
-					return err
-				}
+				vm.put(NullObj)
 			}
 		case code.OpUpdateLocal:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2
 			frame.vars[varIdx] = vm.top()
 		case code.OpGetBuiltin:
-			builtinIdx := code.ReadUint8(ins[ip+1:])
+			builtinIdx := ins[ip+1]
 			ip += 1
-			err := vm.push(object.BuiltinFns[builtinIdx].Builtin)
-			if err != nil {
-				return err
-			}
+			vm.put(object.BuiltinFns[builtinIdx].Builtin)
 		case code.OpClosure:
-			fnIdx := code.ReadUint8(ins[ip+1:])
+			fnIdx := ins[ip+1]
 			ip += 1
-			err := vm.push(vm.constants[fnIdx])
-			if err != nil {
-				return err
-			}
+			vm.put(vm.constants[fnIdx])
 		case code.OpBuildArray:
-			gap := int(code.ReadUint16(ins[ip+1:]))
+			gap := int(readU16(ins, ip+1))
 			ip += 2
 			ele := make([]object.Object, gap)
 			copy(ele, vm.stack[vm.sp-gap:vm.sp])
 			vm.sp -= gap //栈指针归位
-			err := vm.push(object.Array{Elements: ele})
-			if err != nil {
-				return err
-			}
+			vm.put(object.Array{Elements: ele})
 		case code.OpMakeSlice:
 			sliceObj := object.Slice{}
 			sliceObj.Start = vm.stack[vm.sp-3]
 			sliceObj.End = vm.stack[vm.sp-2]
 			sliceObj.Step = vm.stack[vm.sp-1]
 			vm.sp -= 3
-			err := vm.push(sliceObj)
-			if err != nil {
-				return err
-			}
+			vm.put(sliceObj)
 		case code.OpIndex:
 			err := vm.applyIndex()
 			if err != nil {
@@ -391,14 +383,14 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				return err
 			}
 		case code.OpMakeMap:
-			keyLen := code.ReadUint16(ins[ip+1:])
+			keyLen := readU16(ins, ip+1)
 			ip += 2
 			err := vm.makeMap(int(keyLen))
 			if err != nil {
 				return err
 			}
 		case code.OpLoadMethod:
-			varIdx = code.ReadUint16(ins[ip+1:])
+			varIdx = readU16(ins, ip+1)
 			ip += 2
 			mName := bytecode.Symbols.Methods.FindName(int(varIdx))
 			objType := vm.top().Type()
@@ -413,7 +405,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				return err
 			}
 		case code.OpCallMethod:
-			argsNum := code.ReadUint8(ins[ip+1:])
+			argsNum := ins[ip+1]
 			ip += 1
 			err := vm.callMethod(int(argsNum))
 			if err != nil {
@@ -1010,10 +1002,12 @@ func (vm *VM) allocLocals(n int) []object.Object {
 	return vars
 }
 
-func (vm *VM) pushFrame(frame Frame) error {
+// pushFrame 在帧栈顶原地构造一个新帧并返回它的指针。
+// 这样调用路径上不再出现 Frame 值拷贝（Frame 有一百多字节）。
+func (vm *VM) pushFrame(calleeName string, calleeLine int) (*Frame, error) {
 	if vm.frameIdx >= MaxFrame {
-		return fmt.Errorf("%scall stack overflow: call depth exceeded %d while calling %s (line %d)",
-			format.Alert, MaxFrame, frame.Name, frame.Line)
+		return nil, fmt.Errorf("%scall stack overflow: call depth exceeded %d while calling %s (line %d)",
+			format.Alert, MaxFrame, calleeName, calleeLine)
 	}
 	if vm.frameIdx == len(vm.frames) {
 		grown := len(vm.frames) * 2
@@ -1024,9 +1018,12 @@ func (vm *VM) pushFrame(frame Frame) error {
 		copy(newFrames, vm.frames)
 		vm.frames = newFrames
 	}
-	vm.frames[vm.frameIdx] = frame
+	f := &vm.frames[vm.frameIdx]
+	// 只重置 ip：其余字段由调用方（callFunc）逐个赋值。
+	// 注意：Frame 新增字段时必须同时在这里或调用方初始化，否则会读到上一层的残留值。
+	f.ip = -1
 	vm.frameIdx++
-	return nil
+	return f, nil
 }
 
 func (vm *VM) popFrame() Frame {
@@ -1042,7 +1039,8 @@ func (vm *VM) executeCall(numArgs int) error {
 	callee := vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
-		return vm.callFunc(callee, numArgs)
+		// 传指针：CompiledFunc 有一百多字节，按值再传一次就多一次拷贝
+		return vm.callFunc(&callee, numArgs)
 	case object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
 	default:
@@ -1061,7 +1059,7 @@ func (vm *VM) printTop() {
 	vm.sp--
 }
 
-func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
+func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf(format.Alert+"wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
@@ -1070,14 +1068,24 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 	// 而不是 nil（那会在后续类型判断时 panic）——allocLocals 已经清零。
 	base := vm.localsTop
 	newVars := vm.allocLocals(fn.LocalsNum)
-	for idx, arg := range vm.stack[vm.sp-numArgs : vm.sp] {
+	args := vm.stack[vm.sp-numArgs : vm.sp]
+	for idx, arg := range args {
 		newVars[idx] = arg
 	}
-	frame := NewFrame(fn.Instructions, newVars, vm.sp-numArgs).WithLines(fn.Lines)
+	// 帧直接在其槽位里原地构造，避免 Frame 这个上百字节的结构体被拷来拷去
+	frame, err := vm.pushFrame(fn.FnName, fn.LineLoc)
+	if err != nil {
+		vm.localsTop = base // 帧没建起来，把刚切出去的槽位还回去
+		return err
+	}
+	frame.ins = fn.Instructions
+	frame.lines = fn.Lines
+	frame.vars = newVars
+	frame.basePoint = vm.sp - numArgs
 	frame.localsBase = base
 	frame.Name = fn.FnName
 	frame.Line = fn.LineLoc
-	return vm.pushFrame(frame)
+	return nil
 }
 
 // locate 给错误信息补上源码行号。

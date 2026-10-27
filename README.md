@@ -67,23 +67,43 @@ c.SetOptimize(false)
 | 小整数/布尔 | `-256..2048` 的整数与 `true`/`false` 常驻单例 | 每次算术结果装箱都是一次堆分配 |
 | 算术分派 | 用类型断言代替 `Type()` 字符串比较 | `Type()` 返回的是字符串，一次算术要比较好几轮字符串 |
 | 数组字面量 | `make` + `copy` 取代 append 循环 | 避免多次扩容 |
+| 调用路径 | 帧在帧栈里原地构造（`pushFrame` 返回指针），`CompiledFunc` 传指针 | `CompiledFunc` 约 104 字节、`Frame` 约 120 字节，原来每次调用要拷 6 次 |
+| 栈操作 | 每条指令前统一检查一次栈容量，热路径用无检查的 `put` | 一条指令最多压一个值，省掉每次 push 的函数调用与边界检查 |
 
 实测（1000 次迭代的整数循环 / fib(18) / 数组下标 / 深递归 300 层）：
 
 ```
-                    优化前          优化后
-LoopArith           139558 ns/op   100917 ns/op   (-28%)
-FibRecursive       1099901 ns/op   752382 ns/op   (-32%)
-ArrayIndex           31590 ns/op    22202 ns/op   (-30%)
-DeepRecursion        35154 ns/op    28380 ns/op   (-19%)
+                    第一轮后        第二轮后
+LoopArith           123771 ns/op    99680 ns/op   (初始 139558, -29%)
+FibRecursive        911324 ns/op   539000 ns/op   (初始 1099901, -51%)
+ArrayIndex           25980 ns/op    27960 ns/op   (初始 31590)
+DeepRecursion        30137 ns/op    26740 ns/op   (初始 35154)
 
 allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
 ```
 
-还没做、但值得做的（按收益排序）：**超指令/快速化**（把 `GetLocal+GetLocal+Add` 合成一条，
+### fib(30) 横向对比
+
+同一份朴素递归 `fib(n)=fib(n-1)+fib(n-2)`，同一台机器（Ryzen 7 5800X / Windows）：
+
+| 实现 | 端到端（含启动，5 次最好） | 进程内纯计算 | 每次调用 |
+| --- | --- | --- | --- |
+| xlang（本项目，字节码解释器） | 0.194 s | ~175 ms | ~65 ns |
+| CPython 3.14.2 | 0.122 s | ~95 ms | ~35 ns |
+| Node 24.21（V8 JIT） | 0.084 s | ~6.7 ms | ~2.5 ns |
+| Rust 1.99 `-O`（原生） | 0.009 s | ~1.6 ms | ~0.6 ns |
+
+注：fib(30) 约有 269 万次调用，两种解释器的耗时几乎全在"建帧 + 派发 + 返回"上。
+CPython 3.11+ 有专用化指令（`BINARY_OP_ADD_INT`、`LOAD_FAST_BORROW`）和 opcache，
+这就是它比本项目快约 1.8 倍的原因；Node/Rust 快的这 20~100 倍来自 JIT/原生编译，不是同一个量级。
+启动开销：xlang 21 ms、CPython 27 ms、Node 78 ms、Rust 8 ms。
+
+## 还没做的优化
+
+按收益排序：**超指令/快速化**（把 `GetLocal+GetLocal+Add` 合成一条，
 对应 CPython 3.12 的专用指令，需要新增操作码并贯穿 code/compiler/ir/反汇编）、
-**tagged value / NaN-boxing**（彻底去掉 `object.Object` 接口装箱，改为 Go 里的联合表示，
-收益最大但改动面也最大）、直接线索化派发（Go 没有 computed goto，
+**tagged value / NaN-boxing**（彻底去掉 `object.Object` 接口装箱，
+是追上 CPython 的关键一步）、直接线索化派发（Go 没有 computed goto，
 只能用函数表，实际未必比现在这个密集 switch 快，需要实测）。
 
 ## 语义要点
