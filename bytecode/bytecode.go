@@ -11,8 +11,12 @@ import (
 
 type Bytecode struct {
 	Instruction code.Instructions
-	Constants   []object.Object
-	Symbols     *parser.SymTable
+	// Lines 是主函数的"指令偏移 -> 源码行"映射
+	Lines     []code.LineEntry
+	Constants []object.Object
+	Symbols   *parser.SymTable
+	// MainLocals 是顶层作用域（含顶层块）需要的局部槽位数
+	MainLocals int
 }
 
 func (b *Bytecode) Ins() string {
@@ -68,7 +72,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 		obj := b.Constants[idx]
 		args = string(obj.Type()) + "(" + obj.Inspect() + ")"
 	case "OpSetLocal", "OpGetLocal", "OpUpdateLocal":
-		if name, ok := scope.FindByIdx(idx); ok {
+		if name, ok := scope.FindLocalByIdx(idx); ok {
 			args = name
 		}
 	case "OpLoadMethod":
@@ -84,7 +88,7 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 		args = builtIn.Name
 	case "OpSetGlobal", "OpGetGlobal", "OpUpdateGlobal":
 		base := parser.Search("Base", b.Symbols)
-		if name, ok := base.FindByIdx(idx); ok {
+		if name, ok := base.FindGlobalByIdx(idx); ok {
 			args = name
 		}
 	}
@@ -100,6 +104,11 @@ func (b *Bytecode) decodeFunc() string {
 				funcObj.FnName, funcObj.LineLoc))
 			sb.WriteString("\n")
 			s := parser.Search(funcObj.FnName, b.Symbols)
+			if funcObj.ScopeID != 0 {
+				if scoped := b.Symbols.FindScope(funcObj.ScopeID); scoped != nil {
+					s = scoped
+				}
+			}
 			sb.WriteString(b.InsToString(funcObj.Instructions, 1, 6, s))
 			sb.WriteString("\n\n")
 		}

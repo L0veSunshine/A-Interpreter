@@ -1,6 +1,7 @@
 package object
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -10,7 +11,7 @@ type MapPair struct {
 	Item Object
 }
 
-func (p *MapPair) Inspect() string {
+func (p MapPair) Inspect() string {
 	var key, item string
 	if p.Key.Type() == StringObj {
 		key = strconv.Quote(p.Key.Inspect())
@@ -37,15 +38,18 @@ func (m Map) Type() ObjType {
 func (m Map) Inspect() string {
 	var sb strings.Builder
 	sb.WriteString("{")
-	if m.Size > 0 {
-		idx := 1
-		for _, p := range m.Store {
-			if idx != m.Size {
-				sb.WriteString(p.Inspect() + ", ")
-			} else {
-				sb.WriteString(p.Inspect())
+	if len(m.Store) > 0 {
+		// Go map 的遍历顺序是随机的，排序后输出才能保证结果可复现
+		hashes := make([]int, 0, len(m.Store))
+		for h := range m.Store {
+			hashes = append(hashes, h)
+		}
+		sort.Ints(hashes)
+		for i, h := range hashes {
+			sb.WriteString(m.Store[h].Inspect())
+			if i != len(hashes)-1 {
+				sb.WriteString(", ")
 			}
-			idx += 1
 		}
 	}
 	sb.WriteString("}")

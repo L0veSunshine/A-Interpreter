@@ -45,12 +45,16 @@ func (b Builtin) Inspect() string {
 }
 
 type CompiledFunc struct {
-	FnName        string
-	Instructions  code.Instructions
+	FnName       string
+	Instructions code.Instructions
+	// Lines 是"指令偏移 -> 源码行"映射，用于把运行时错误定位到源码行
+	Lines         []code.LineEntry
 	LocalsNum     int
 	ParametersNum int
 	Called        bool
 	LineLoc       int
+	// ScopeID 对应解析期的函数作用域，反汇编时用它定位正确的符号表
+	ScopeID int
 }
 
 func (cf CompiledFunc) Type() ObjType {

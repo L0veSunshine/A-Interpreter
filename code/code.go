@@ -14,7 +14,6 @@ type Definition struct {
 var Definitions = map[Opcode]Definition{
 	OpConstant:     {"OpConstant", []int{2}},
 	OpPop:          {"OpPop", []int{}},
-	OpTop:          {"OpTop", []int{}},
 	OpPrintTop:     {"OpPrintTop", []int{}},
 	OpAdd:          {"OpAdd", []int{}},
 	OpSub:          {"OpSub", []int{}},
@@ -28,8 +27,8 @@ var Definitions = map[Opcode]Definition{
 	OpNotEQ:        {"OpNotEQ", []int{}},
 	OpGT:           {"OpGT", []int{}},
 	OpGTEq:         {"OpGTEq", []int{}},
-	OpAnd:          {"OpAnd", []int{}},
-	OpOr:           {"OpOr", []int{}},
+	OpLT:           {"OpLT", []int{}},
+	OpLTEq:         {"OpLTEq", []int{}},
 	OpNot:          {"OpNot", []int{}},
 	OpTrue:         {"OpTrue", []int{}},
 	OpFalse:        {"OpFalse", []int{}},

@@ -7,6 +7,7 @@ import (
 	"Interpreter/parser"
 	vm2 "Interpreter/vm"
 	"fmt"
+	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -374,7 +375,7 @@ print(type(cache["4"]))
 func TestParser_Parse(t *testing.T) {
 	st := time.Now()
 	lex := lexer.NewLexer(s19)
-	fmt.Println(lex.Array())
+	fmt.Println(lex.Tokenize())
 	p := parser.NewParser(lex)
 	ast := p.Parse()
 	if !p.HasError() {
@@ -491,7 +492,7 @@ def sqrt(t) {
 var i=10/2
 var const=0
 var tmp=9999
-for(tmp>0.000000001){
+for(;tmp>0.000000001;){
 i=i-(i**2-t)/(2*i)
 const=const+1
 if(i**2-t>0){
@@ -506,13 +507,23 @@ func TestParseParams(t *testing.T) {
 	lex := lexer.NewLexer(ori1)
 	p := parser.NewParser(lex)
 	ast := p.Parse()
-	fmt.Println(ast.Str())
+	if p.HasError() {
+		t.Fatalf("parse error: %v", p.Errs())
+	}
 	c := compiler.NewCompiler()
+	c.SetSymbol(p.SymTable)
 	c.Compile(ast)
-	c.Debug()
+	if c.HasError() {
+		t.Fatalf("compile error: %v", c.Errs())
+	}
 	vm := vm2.NewVM()
 	if err := vm.Run(c.ByteCode()); err != nil {
-		fmt.Println(err)
+		t.Fatalf("runtime error: %v", err)
 	}
-	//fmt.Println(vm.LastPop().Inspect())
+	if got := vm.LastPop().Inspect(); got != "2.236068" {
+		v, err := strconv.ParseFloat(got, 64)
+		if err != nil || math.Abs(v-math.Sqrt(5)) > 1e-5 {
+			t.Fatalf("sqrt(sqrt(4)+sqrt(9)) should be sqrt(5), got %s", got)
+		}
+	}
 }

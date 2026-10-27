@@ -96,7 +96,7 @@ func builtLen(arg Object) Object {
 	case Array:
 		length = len(arg.Elements)
 	case Map:
-		length = arg.Size
+		length = len(arg.Store)
 	default:
 		return Error{ErrorMsg: fmt.Sprintf("len don't support type %s.", arg.Type())}
 	}

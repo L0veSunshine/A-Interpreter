@@ -81,8 +81,12 @@ var Reserved = map[string]string{
 	"break":  Break,
 }
 
+// Locate 是源码位置，行/列均从 1 开始。
 type Locate struct {
 	Column, Line int
+	// Offset 是 token 在源码中的 rune 下标（从 0 开始），
+	// 便于按位置取源码片段或对接编辑器诊断。
+	Offset int
 }
 
 func NToken(Type string, Value string, loc *Locate) *Token {

@@ -5,16 +5,20 @@ import (
 	"Interpreter/tokens"
 )
 
+// 优先级从低到高，与 Python 保持一致：
+// or < and < not < 比较 < 加减 < 乘除模 < 幂 < 一元 < 属性/调用/下标
 const (
 	LOWEST    int = iota
-	Method        // .
+	Or            // or
+	And           // and
+	Not           // not / !
 	Eq            // == !=
 	GreatLess     // < > <= >=
 	SUM           // +,-
-	PRODUCT       // *,/,//
+	PRODUCT       // *,/,%
 	POW           //**
-	PREFIX        // -x,!x
-	COMPARE       // and,or,not
+	PREFIX        // -x
+	Method        // .
 	CALL          //()
 	Index         //[]
 	Highest
@@ -30,7 +34,7 @@ var precedences = map[string]int{
 	tokens.Minus:    SUM,
 	tokens.Mul:      PRODUCT,
 	tokens.Div:      PRODUCT,
-	tokens.Mod:      POW,
+	tokens.Mod:      PRODUCT,
 	tokens.Pow:      POW,
 	tokens.LParen:   CALL,
 	tokens.Dot:      Method,
@@ -40,8 +44,8 @@ var precedences = map[string]int{
 	tokens.GT:       GreatLess,
 	tokens.LTEq:     GreatLess,
 	tokens.GTEq:     GreatLess,
-	tokens.And:      COMPARE,
-	tokens.Or:       COMPARE,
-	tokens.Not:      COMPARE,
+	tokens.And:      And,
+	tokens.Or:       Or,
+	tokens.Not:      Not,
 	tokens.LBRACKET: Index,
 }

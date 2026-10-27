@@ -6,7 +6,6 @@ const (
 	_ Opcode = iota
 	OpConstant
 	OpPop
-	OpTop
 	OpPrintTop
 
 	OpTrue
@@ -20,11 +19,11 @@ const (
 	OpPow
 	OpGT
 	OpGTEq
+	OpLT
+	OpLTEq
 	OpEqual
 	OpNotEQ
 
-	OpAnd
-	OpOr
 	OpNot
 
 	OpMinus

@@ -6,11 +6,18 @@ import (
 )
 
 func FindMethod(objType ObjType, methodName string) (Object, error) {
+	var list ObjMethods
 	switch objType {
 	case ArrayObj:
-		return ArrayMethodList[methodName], nil
+		list = ArrayMethodList
 	case StringObj:
-		return StringMethodList[methodName], nil
+		list = StringMethodList
+	default:
+		return nil, fmt.Errorf(format.Alert+"Object %s don't has method %s", string(objType), methodName)
 	}
-	return nil, fmt.Errorf(format.Alert+"Object %s don't has method \"%s\"", string(objType), methodName)
+	method, ok := list[methodName]
+	if !ok || method.M == nil {
+		return nil, fmt.Errorf(format.Alert+"Object %s don't has method %s", string(objType), methodName)
+	}
+	return method, nil
 }

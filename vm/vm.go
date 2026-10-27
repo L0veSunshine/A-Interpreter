@@ -13,59 +13,98 @@ import (
 )
 
 const (
-	StackSize  = 2048
-	GlobalSize = 65536
-	MaxFrame   = 1024
+	// InitStackSize 是操作数栈的初始槽位数；push 时会按需翻倍，
+	// 直到 MaxStackSize。原来固定 2048 槽，深递归到 680 层左右就爆栈。
+	InitStackSize = 2048
+	MaxStackSize  = 1 << 20
+	// InitGlobalSize 是全局槽位的初始容量，按需增长。
+	// 槽位号来自 2 字节操作数，所以真正的上限是 65536，
+	// 由编译器在越界时报错（见 compiler.emit），VM 这里只兜底。
+	InitGlobalSize = 256
+	MaxGlobalSize  = 1 << 16
+	// InitFrameCount 是调用栈的初始容量，同样按需增长，上限 MaxFrame
+	InitFrameCount = 64
+	MaxFrame       = 1 << 16
 )
 
 var (
-	StackOverErr = fmt.Errorf(format.Alert + "stack overflow")
-	StackIdxErr  = fmt.Errorf(format.Alert + "invalid index")
-	NullObj      = object.Null{}
+	StackIdxErr = fmt.Errorf(format.Alert + "invalid index")
+	NullObj     = object.Null{}
 )
 
 type VM struct {
 	constants []object.Object
 
-	stack    [StackSize]object.Object
+	stack    []object.Object
 	globals  []object.Object
 	sp       int
+	maxSP    int
 	frames   []Frame
 	frameIdx int
+	// lastPop 记录"最后一条语句级表达式产生的值"，供 REPL / 测试读取。
+	// 之前靠"值留在栈顶"实现，正是循环泄漏栈槽的根源。
+	lastPop object.Object
+	// argBuf 是调用内建函数/方法时的实参缓冲。做成实例字段，
+	// 避免两个 VM 共享同一个包级切片而串数据。
+	argBuf []object.Object
 }
 
 func NewVM() *VM {
-	frames := make([]Frame, MaxFrame)
 	return &VM{
-		globals:  make([]object.Object, GlobalSize),
+		stack:    make([]object.Object, InitStackSize),
+		globals:  make([]object.Object, InitGlobalSize),
 		sp:       0, //stack pointer
-		frames:   frames,
+		frames:   make([]Frame, InitFrameCount),
 		frameIdx: 1,
 	}
 }
 
 func (vm *VM) LastPop() object.Object {
-	if vm.sp >= 0 {
-		return vm.stack[vm.sp]
+	if vm.lastPop != nil {
+		return vm.lastPop
+	}
+	if vm.sp > 0 && vm.sp <= len(vm.stack) {
+		return vm.stack[vm.sp-1]
 	}
 	return NullObj
 }
 
+// MaxStackDepth 返回本次执行中操作数栈达到过的最大高度，
+// 用来验证"循环不再每轮泄漏一个栈槽"。
+func (vm *VM) MaxStackDepth() int {
+	return vm.maxSP
+}
+
 func (vm *VM) push(obj object.Object) error {
-	nIdx := vm.sp + 1
-	if nIdx > StackSize {
-		return StackOverErr
+	if vm.sp == len(vm.stack) {
+		if len(vm.stack) >= MaxStackSize {
+			f := vm.currentFrame()
+			return fmt.Errorf("%sstack overflow: operand stack exceeded %d slots in %s (line %d)",
+				format.Alert, MaxStackSize, f.Name, f.Line)
+		}
+		grown := len(vm.stack) * 2
+		if grown > MaxStackSize {
+			grown = MaxStackSize
+		}
+		newStack := make([]object.Object, grown)
+		copy(newStack, vm.stack)
+		vm.stack = newStack
 	}
 	vm.stack[vm.sp] = obj
-	vm.sp = nIdx
+	vm.sp++
+	if vm.sp > vm.maxSP {
+		vm.maxSP = vm.sp
+	}
 	return nil
 }
 
 func (vm *VM) pop() object.Object {
-	nIdx := vm.sp - 1
-	obj := vm.stack[nIdx]
-	vm.sp = nIdx
-	return obj
+	if vm.sp <= 0 {
+		vm.sp = 0
+		return NullObj
+	}
+	vm.sp--
+	return vm.stack[vm.sp]
 }
 
 func (vm *VM) top() object.Object {
@@ -73,7 +112,8 @@ func (vm *VM) top() object.Object {
 	if idx >= 0 {
 		return vm.stack[idx]
 	}
-	return nil
+	// 空栈时返回 None，让后续的类型检查给出正常错误而不是空指针崩溃
+	return NullObj
 }
 
 func (vm *VM) replace(obj object.Object) error {
@@ -85,14 +125,28 @@ func (vm *VM) replace(obj object.Object) error {
 	return StackIdxErr
 }
 
-func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
+func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	var ip int
 	var ins code.Instructions
 	var op code.Opcode
 	var varIdx uint16
 
-	vm.frames[0] = NewFrame(bytecode.Instruction, &vm.globals, 0)
+	mainVars := make([]object.Object, bytecode.MainLocals)
+	for i := range mainVars {
+		mainVars[i] = NullObj
+	}
+	// main 帧拥有独立的局部槽位；全局变量单独放在 vm.globals 里
+	vm.frames[0] = NewFrame(bytecode.Instruction, &mainVars, 0).WithLines(bytecode.Lines)
+	vm.frames[0].Name = "<main>"
 	vm.constants = bytecode.Constants
+
+	// 统一的错误定位：任何从指令执行里冒出来的错误都补上源码行，
+	// 这样调用方拿到的错误信息能直接指到源码（不需要逐处 return 时处理）
+	defer func() {
+		if err != nil {
+			err = vm.locate(err)
+		}
+	}()
 
 	for vm.currentFrame().ip < len(vm.currentFrame().Instructions())-1 {
 		vm.currentFrame().ip++
@@ -120,7 +174,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 				}
 			}
 		case code.OpPop:
-			vm.pop()
+			vm.lastPop = vm.pop()
 		case code.OpPrintTop:
 			vm.printTop()
 		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpMod:
@@ -133,13 +187,8 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			if err != nil {
 				return err
 			}
-		case code.OpEqual, code.OpNotEQ, code.OpGTEq, code.OpGT:
+		case code.OpEqual, code.OpNotEQ, code.OpGTEq, code.OpGT, code.OpLT, code.OpLTEq:
 			err := vm.compareBinOp(op)
-			if err != nil {
-				return err
-			}
-		case code.OpAnd, code.OpOr:
-			err := vm.logicBinOp(op)
 			if err != nil {
 				return err
 			}
@@ -162,18 +211,22 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpSetGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpSetGlobal
-			vm.frames[0].vars[varIdx] = vm.pop()
+			if err := vm.setGlobal(varIdx, vm.pop()); err != nil {
+				return err
+			}
 		case code.OpGetGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpGetGlobal
-			err := vm.push(vm.frames[0].vars[varIdx])
+			err := vm.push(vm.globalAt(varIdx))
 			if err != nil {
 				return err
 			}
 		case code.OpUpdateGlobal:
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2 //skip the operand of code.OpUpdate
-			vm.frames[0].vars[varIdx] = vm.top()
+			if err := vm.setGlobal(varIdx, vm.top()); err != nil {
+				return err
+			}
 		case code.OpCallFunc:
 			numArgs := code.ReadUint8(ins[ip+1:])
 			vm.currentFrame().ip++
@@ -183,9 +236,15 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 			}
 		case code.OpReturnVal:
 			returnVal := vm.pop()
+			if vm.frameIdx <= 1 {
+				return fmt.Errorf(format.Alert + "return outside of a function")
+			}
 
 			frame := vm.popFrame()
 			vm.sp = frame.basePoint - 1
+			if vm.sp < 0 {
+				vm.sp = 0
+			}
 
 			err := vm.push(returnVal)
 			if err != nil {
@@ -198,7 +257,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 		case code.OpGetLocal:
 			varIdx = code.ReadUint16(ins[ip+1:])
 			vm.currentFrame().ip += 2
-			err := vm.push(vm.currentFrame().vars[varIdx])
+			err := vm.push(vm.localAt(varIdx))
 			if err != nil {
 				return err
 			}
@@ -286,22 +345,23 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) error {
 	return nil
 }
 
-var args []object.Object
-
 func (vm *VM) callMethod(argsNum int) error {
 	baseIdx := vm.sp - argsNum - 1
+	if baseIdx-1 < 0 {
+		return fmt.Errorf(format.Alert + "invalid method call: not enough values on stack")
+	}
 	obj := vm.stack[baseIdx-1]
 	method := vm.stack[baseIdx]
 	baseIdx++
-	args = args[:0]
+	vm.argBuf = vm.argBuf[:0]
 	for ; baseIdx < vm.sp; baseIdx++ {
-		args = append(args, vm.stack[baseIdx])
+		vm.argBuf = append(vm.argBuf, vm.stack[baseIdx])
 	}
 	methodFunc, ok := method.(object.MethodObj)
-	if !ok {
+	if !ok || methodFunc.M == nil {
 		return fmt.Errorf(format.Alert + "Method is invaild")
 	}
-	returnObj := methodFunc.M(obj, args...)
+	returnObj := methodFunc.M(obj, vm.argBuf...)
 	vm.sp = vm.sp - argsNum - 2
 	var err error
 	if len(returnObj) >= 2 {
@@ -342,32 +402,15 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 	return vm.compareObj(op, left, right)
 }
 
-func (vm *VM) logicBinOp(op code.Opcode) error {
-	right := vm.pop()
-	left := vm.top()
-	switch {
-	case left.Type() == object.BooleanObj && right.Type() == object.BooleanObj:
-		var res bool
-		leftVal := left.(object.Boolean).Value
-		rightVal := right.(object.Boolean).Value
-		switch op {
-		case code.OpAnd:
-			res = leftVal && rightVal
-		case code.OpOr:
-			res = leftVal || rightVal
-		}
-		return vm.replace(nativeBoolToBool(res))
-	default:
-		return fmt.Errorf(format.Alert+"unsporrted type %s", right.Type())
-	}
-}
 func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
+	// 不能用哈希值比较：Array/Map 等复合类型没有稳定的哈希语义
+	eq := object.RichCompare(left, right)
 	var res bool
 	switch op {
 	case code.OpEqual:
-		res = utils.Hash(left) == utils.Hash(right)
+		res = eq
 	case code.OpNotEQ:
-		res = utils.Hash(left) != utils.Hash(right)
+		res = !eq
 	default:
 		return fmt.Errorf(format.Alert+"unsupport operator for object(%s,%s): %d", left.Inspect(),
 			right.Inspect(), op)
@@ -384,6 +427,14 @@ func (vm *VM) compareStringObj(op code.Opcode, left, right object.Object) error 
 		res = leftVal == rightVal
 	case code.OpNotEQ:
 		res = leftVal != rightVal
+	case code.OpGT:
+		res = leftVal > rightVal
+	case code.OpGTEq:
+		res = leftVal >= rightVal
+	case code.OpLT:
+		res = leftVal < rightVal
+	case code.OpLTEq:
+		res = leftVal <= rightVal
 	default:
 		return fmt.Errorf(format.Alert+"unsupport operator for StringObj: %d", op)
 	}
@@ -415,6 +466,10 @@ func (vm *VM) compareNumObj(op code.Opcode, left, right object.Object) error {
 		res = leftVal > rightVal
 	case code.OpGTEq:
 		res = leftVal >= rightVal
+	case code.OpLT:
+		res = leftVal < rightVal
+	case code.OpLTEq:
+		res = leftVal <= rightVal
 	default:
 		return fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
 	}
@@ -428,20 +483,15 @@ func nativeBoolToBool(b bool) object.Boolean {
 func objToNativeBool(obj object.Object) bool {
 	switch obj := obj.(type) {
 	case object.Boolean:
-		if obj.Value {
-			return true
-		}
-		return false
+		return obj.Value
 	case object.Int:
-		if obj.Value == 0 {
-			return false
-		}
-		return true
+		return obj.Value != 0
 	case object.Float:
-		if obj.Value == 0 {
-			return false
-		}
-		return true
+		return obj.Value != 0
+	case object.Null:
+		return false
+	case object.String:
+		return len(obj.Value) > 0
 	default:
 		return true
 	}
@@ -467,6 +517,9 @@ func (vm *VM) executeBinOpInt(op code.Opcode, left, right object.Object) error {
 		}
 		return vm.replace(object.Float{Value: fRes})
 	case code.OpMod:
+		if rightVal == 0 {
+			return DivZeroErr
+		}
 		res = leftVal % rightVal
 	case code.OpPow:
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
@@ -560,6 +613,12 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 			return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
 		}
 		return vm.replace(nativeBoolToBool(value))
+	case object.NullObj:
+		// None 是假值：not None == True；+None / -None 仍然是类型错误
+		if op == code.OpNot {
+			return vm.replace(nativeBoolToBool(true))
+		}
+		return fmt.Errorf(format.Alert+"unsupported type for negation: %s", token.Type())
 	}
 	return fmt.Errorf(format.Alert+"unsupported type for negation: %s", token.Type())
 }
@@ -629,7 +688,7 @@ func (vm *VM) integerIndex(idx int) error {
 func (vm *VM) mapIndex(hash int) error {
 	obj := vm.top()
 	if obj.Type() != object.MapObj {
-		return fmt.Errorf(format.Alert+"string can't index type %s", obj.Type())
+		return fmt.Errorf(format.Alert+"%s object is not subscriptable by a non-integer index", obj.Type())
 	}
 	mapObj := obj.(object.Map)
 	m, ok := mapObj.Store[hash]
@@ -796,9 +855,62 @@ func (vm *VM) currentFrame() *Frame {
 	return &vm.frames[vm.frameIdx-1]
 }
 
-func (vm *VM) pushFrame(frame Frame) {
+// globalAt/localAt 对"越界或尚未赋值"的槽位返回 None，
+// 保证解释器不会因为编译器的一处疏漏而空指针崩溃。
+func (vm *VM) globalAt(idx uint16) object.Object {
+	if int(idx) >= len(vm.globals) || vm.globals[idx] == nil {
+		return NullObj
+	}
+	return vm.globals[idx]
+}
+
+// setGlobal 按需扩容全局槽位表。上限 MaxGlobalSize 与 2 字节操作数宽度一致，
+// 编译器会在符号号越界时先报错，这里只是兜底（手写字节码的情况）。
+func (vm *VM) setGlobal(idx uint16, obj object.Object) error {
+	if int(idx) >= MaxGlobalSize {
+		return fmt.Errorf("%sglobal slot %d exceeds limit %d", format.Alert, idx, MaxGlobalSize)
+	}
+	if grow := int(idx) + 1; grow > len(vm.globals) {
+		grown := len(vm.globals) * 2
+		for grown < grow {
+			grown *= 2
+		}
+		if grown > MaxGlobalSize {
+			grown = MaxGlobalSize
+		}
+		newGlobals := make([]object.Object, grown)
+		copy(newGlobals, vm.globals)
+		vm.globals = newGlobals
+	}
+	vm.globals[idx] = obj
+	return nil
+}
+
+func (vm *VM) localAt(idx uint16) object.Object {
+	vars := vm.currentFrame().vars
+	if int(idx) >= len(vars) || vars[idx] == nil {
+		return NullObj
+	}
+	return vars[idx]
+}
+
+func (vm *VM) pushFrame(frame Frame) error {
+	if vm.frameIdx >= MaxFrame {
+		return fmt.Errorf("%scall stack overflow: call depth exceeded %d while calling %s (line %d)",
+			format.Alert, MaxFrame, frame.Name, frame.Line)
+	}
+	if vm.frameIdx == len(vm.frames) {
+		grown := len(vm.frames) * 2
+		if grown > MaxFrame {
+			grown = MaxFrame
+		}
+		newFrames := make([]Frame, grown)
+		copy(newFrames, vm.frames)
+		vm.frames = newFrames
+	}
 	vm.frames[vm.frameIdx] = frame
 	vm.frameIdx++
+	return nil
 }
 
 func (vm *VM) popFrame() Frame {
@@ -807,6 +919,10 @@ func (vm *VM) popFrame() Frame {
 }
 
 func (vm *VM) executeCall(numArgs int) error {
+	if vm.sp < numArgs+1 {
+		return fmt.Errorf(format.Alert+"invalid call: stack has %d slots but call needs %d",
+			vm.sp, numArgs+1)
+	}
 	callee := vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
@@ -820,11 +936,13 @@ func (vm *VM) executeCall(numArgs int) error {
 
 func (vm *VM) printTop() {
 	topObj := vm.top()
-	if topObj != nil {
-		printFn := object.GetBuiltinFn("print")
-		printFn.Fn(topObj)
-		vm.sp = vm.sp - 2
+	if topObj == nil {
+		return
 	}
+	printFn := object.GetBuiltinFn("print")
+	printFn.Fn(topObj)
+	vm.lastPop = topObj
+	vm.sp--
 }
 
 func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
@@ -833,22 +951,56 @@ func (vm *VM) callFunc(fn object.CompiledFunc, numArgs int) error {
 			fn.ParametersNum, numArgs)
 	}
 	newVars := make([]object.Object, fn.LocalsNum)
+	// 块作用域的槽位不会在块退出时回收，读到"尚未赋值"的槽位应当得到 None，
+	// 而不是 nil（那会在后续类型判断时 panic）
+	for i := range newVars {
+		newVars[i] = NullObj
+	}
 	for idx, arg := range vm.stack[vm.sp-numArgs : vm.sp] {
 		newVars[idx] = arg
 	}
-	vm.pushFrame(NewFrame(fn.Instructions, &newVars, vm.sp-numArgs))
-	return nil
+	frame := NewFrame(fn.Instructions, &newVars, vm.sp-numArgs).WithLines(fn.Lines)
+	frame.Name = fn.FnName
+	frame.Line = fn.LineLoc
+	return vm.pushFrame(frame)
+}
+
+// locate 给错误信息补上源码行号。
+// 已经在消息里带行号的错误（如栈溢出）不再重复添加。
+func (vm *VM) locate(err error) error {
+	if err == nil || vm.frameIdx <= 0 {
+		return err
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "line ") {
+		return err
+	}
+	frame := vm.currentFrame()
+	if frame == nil {
+		return err
+	}
+	line := frame.LineAt(frame.ip)
+	if line <= 0 {
+		return err
+	}
+	return fmt.Errorf("%s%s: line %d: %s",
+		format.Alert, frame.Name, line, strings.TrimPrefix(msg, format.Alert))
 }
 
 func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
-	args = args[:0]
-	args = vm.stack[vm.sp-argNums : vm.sp]
-	result := builtin.Fn(args...)
+	vm.argBuf = vm.argBuf[:0]
+	vm.argBuf = append(vm.argBuf, vm.stack[vm.sp-argNums:vm.sp]...)
+	result := builtin.Fn(vm.argBuf...)
 	vm.sp = vm.sp - argNums - 1
-	if result != nil {
-		return vm.push(result)
+	if vm.sp < 0 {
+		vm.sp = 0
 	}
-	return nil
+	// 没有返回值的内建函数（如 print）在语言层面返回 None，
+	// 这样"表达式一定在栈上留下一个值"的不变式才成立
+	if result == nil {
+		result = NullObj
+	}
+	return vm.push(result)
 }
 
 func (vm *VM) debug(operandWidth int) {

@@ -9,6 +9,10 @@ type Program struct {
 	Statements []Statement
 }
 
+func (p Program) Line() int {
+	return firstStatementLine(p)
+}
+
 func (p Program) StatementNode() {}
 func (p Program) TokenLiteral() string {
 	if len(p.Statements) > 0 {
@@ -22,9 +26,9 @@ func (p Program) Str() string {
 	var sb strings.Builder
 	for idx, s := range p.Statements {
 		if idx != len(p.Statements)-1 {
-			sb.WriteString(s.Str() + "\n")
+			sb.WriteString(str(s) + "\n")
 		} else {
-			sb.WriteString(s.Str())
+			sb.WriteString(str(s))
 		}
 	}
 	return sb.String()
@@ -34,6 +38,10 @@ type VarStatement struct {
 	Token  tokens.Token // Var tokens
 	Indent IdentNode
 	Value  Expression
+}
+
+func (vs VarStatement) Line() int {
+	return vs.Token.Loc.Line
 }
 
 func (vs VarStatement) StatementNode() {}
@@ -57,6 +65,10 @@ type VarMethodCall struct {
 	Value  Expression
 }
 
+func (v VarMethodCall) Line() int {
+	return v.Token.Loc.Line
+}
+
 func (v VarMethodCall) StatementNode() {}
 func (v VarMethodCall) TokenLiteral() string {
 	return v.Token.Literal
@@ -72,23 +84,13 @@ func (v VarMethodCall) Str() string {
 	return sb.String()
 }
 
-type MethodCallStmt struct {
-	Token tokens.Token
-	Call  Expression
-}
-
-func (m MethodCallStmt) StatementNode() {}
-func (m MethodCallStmt) TokenLiteral() string {
-	return m.Token.Literal
-}
-
-func (m MethodCallStmt) Str() string {
-	return m.Call.Str()
-}
-
 type ReturnStatement struct {
 	Token     tokens.Token // Return tokens
 	ReturnVal Expression
+}
+
+func (rs ReturnStatement) Line() int {
+	return rs.Token.Loc.Line
 }
 
 func (rs ReturnStatement) StatementNode() {}
@@ -111,6 +113,10 @@ type AssignStatement struct {
 	Statement  Expression
 }
 
+func (as AssignStatement) Line() int {
+	return as.Ident.Loc.Line
+}
+
 func (as AssignStatement) StatementNode() {}
 func (as AssignStatement) TokenLiteral() string {
 	return as.Ident.Literal
@@ -118,12 +124,18 @@ func (as AssignStatement) TokenLiteral() string {
 func (as AssignStatement) Str() string {
 	var sb strings.Builder
 	sb.WriteString("assign: " + as.Identifier.Value + " = ")
-	sb.WriteString(as.Statement.Str())
+	if as.Statement != nil {
+		sb.WriteString(as.Statement.Str())
+	}
 	return sb.String()
 }
 
 type ExprStatement struct {
 	Expression Expression
+}
+
+func (es ExprStatement) Line() int {
+	return nodeLine(es.Expression)
 }
 
 func (es ExprStatement) StatementNode() {}
@@ -142,6 +154,10 @@ type FuncStatement struct {
 	Expression Expression
 }
 
+func (fs FuncStatement) Line() int {
+	return nodeLine(fs.Expression)
+}
+
 func (fs FuncStatement) StatementNode() {}
 func (fs FuncStatement) TokenLiteral() string {
 	return fs.Expression.TokenLiteral()
@@ -157,6 +173,12 @@ func (fs FuncStatement) Str() string {
 type BlockStatement struct {
 	Token      tokens.Token
 	Statements []Statement
+	// ScopeID 对应解析期为这个块建立的作用域编号
+	ScopeID int
+}
+
+func (bs BlockStatement) Line() int {
+	return bs.Token.Loc.Line
 }
 
 func (bs BlockStatement) StatementNode() {}
@@ -168,7 +190,7 @@ func (bs BlockStatement) Str() string {
 	var sb strings.Builder
 	sb.WriteString("Stmts:{")
 	for i, s := range bs.Statements {
-		sb.WriteString(s.Str())
+		sb.WriteString(str(s))
 		if i != len(bs.Statements)-1 {
 			sb.WriteString(", ")
 		}
@@ -182,11 +204,27 @@ type ExpressionAssign struct {
 	Old, Key, New Expression
 }
 
+func (ea ExpressionAssign) Line() int {
+	return ea.Token.Loc.Line
+}
+
 func (ea ExpressionAssign) StatementNode() {}
 func (ea ExpressionAssign) TokenLiteral() string {
 	return ea.Token.Literal
 }
 
 func (ea ExpressionAssign) Str() string {
-	return ea.Old.Str() + "[" + ea.Key.Str() + "] = " + ea.New.Str()
+	var sb strings.Builder
+	if ea.Old != nil {
+		sb.WriteString(ea.Old.Str())
+	}
+	sb.WriteString("[")
+	if ea.Key != nil {
+		sb.WriteString(ea.Key.Str())
+	}
+	sb.WriteString("] = ")
+	if ea.New != nil {
+		sb.WriteString(ea.New.Str())
+	}
+	return sb.String()
 }
