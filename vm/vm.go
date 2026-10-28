@@ -384,6 +384,42 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			}
 			ip += 6
 			vm.put(res)
+		case code.OpCmpBranch:
+			// [kindAB][cmpOp][idxA][idxB][falseTarget]
+			// == 比较 A、B，结果为假时跳到 falseTarget。
+			// 布尔结果完全不物化：省掉一次接口写栈 + 读栈 + objToNativeBool。
+			kindAB := ins[ip+1]
+			subOp := code.Opcode(ins[ip+2])
+			left := vm.fusedOperand(kindAB>>4, readU16(ins, ip+3), frame)
+			right := vm.fusedOperand(kindAB&0x0f, readU16(ins, ip+5), frame)
+			target := int(readU16(ins, ip+7))
+			truthy, cmpErr := resolveCmpBool(subOp, left, right)
+			if cmpErr != nil {
+				return cmpErr
+			}
+			ip += 8
+			if !truthy {
+				ip = target - 1
+			}
+		case code.OpCallFuncConst:
+			// [fnIdx][nargs] == 用常量池里的函数对象直接调用（callee 不进栈）
+			fnIdx := readU16(ins, ip+1)
+			numArgs := int(ins[ip+3])
+			// 本条共 4 字节；循环开头还会 ip++，所以这里只前进 3
+			ip += 3
+			callee := vm.constants[fnIdx]
+			fn, ok := callee.(object.CompiledFunc)
+			if !ok {
+				return fmt.Errorf(format.Alert+"calling non-function and non-built-in (type %s)",
+					callee.Type())
+			}
+			// 先把当前位置写回，返回时才能接着执行
+			frame.ip = ip
+			if err := vm.callFunc(&fn, numArgs, false); err != nil {
+				return err
+			}
+			frame = vm.currentFrame()
+			ins, ip = frame.ins, frame.ip
 		case code.OpReturnOperand:
 			// [kind][idx] == 压入该操作数并返回
 			val := vm.fusedOperand(ins[ip+1], readU16(ins, ip+2), frame)
@@ -559,11 +595,32 @@ func (vm *VM) resolveArithOp(op code.Opcode, left, right object.Object) (object.
 	return vm.resolveArithSlow(op, left, right)
 }
 
+// resolveCmpBool 返回比较结果的**原生布尔值**，供 OpCmpBranch 使用。
+//
+// 这里刻意不走"构造 Boolean 对象再转回 bool"的路径：条件分支只需要真假，
+// 构造对象纯属浪费（还要过一次接口写入/读取）。
+func resolveCmpBool(op code.Opcode, left, right object.Object) (bool, error) {
+	if lv, ok := numOf(left); ok {
+		if rv, ok := numOf(right); ok {
+			return numCompare(op, lv, rv)
+		}
+	}
+	res, err := resolveCmpSlow(op, left, right)
+	if err != nil {
+		return false, err
+	}
+	return objToNativeBool(res), nil
+}
+
 // resolveCmpOp 是比较运算的值返回版本，与 compareBinOp 共用同一份语义实现。
 func resolveCmpOp(op code.Opcode, left, right object.Object) (object.Object, error) {
 	if lv, ok := numOf(left); ok {
 		if rv, ok := numOf(right); ok {
-			return resolveNumCompare(op, lv, rv)
+			b, err := numCompare(op, lv, rv)
+			if err != nil {
+				return nil, err
+			}
+			return boolObj(b), nil
 		}
 	}
 	return resolveCmpSlow(op, left, right)
@@ -620,6 +677,15 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 
 // resolveNumCompare 数值比较：一律按 float64 语义（与原实现一致）。
 func resolveNumCompare(op code.Opcode, lv, rv float64) (object.Object, error) {
+	b, err := numCompare(op, lv, rv)
+	if err != nil {
+		return nil, err
+	}
+	return boolObj(b), nil
+}
+
+// numCompare 是数值比较的语义实现，返回原生布尔值。
+func numCompare(op code.Opcode, lv, rv float64) (bool, error) {
 	var res bool
 	switch op {
 	case code.OpEqual:
@@ -635,9 +701,9 @@ func resolveNumCompare(op code.Opcode, lv, rv float64) (object.Object, error) {
 	case code.OpLTEq:
 		res = lv <= rv
 	default:
-		return nil, fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
+		return false, fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
 	}
-	return boolObj(res), nil
+	return res, nil
 }
 
 // resolveCmpSlow 处理字符串比较、复合类型比较与类型错误。
@@ -1176,10 +1242,10 @@ func (vm *VM) returnTop() error {
 	}
 
 	ret := vm.popFrame()
-	vm.sp = ret.basePoint - 1
-	if vm.sp < 0 {
-		vm.sp = 0
-	}
+	// retTo 是建帧时算好的"返回值应该落在哪"：
+	// 普通调用是 callee 的位置（basePoint-1），
+	// OpCallFuncConst 的 callee 不在栈上，就是 basePoint。
+	vm.sp = ret.retTo
 	// 回收这个帧的局部槽位：整段直接还给槽位区，无需逐个清理
 	if ret.localsBase >= 0 && ret.localsBase <= vm.localsTop {
 		vm.localsTop = ret.localsBase
@@ -1227,7 +1293,7 @@ func (vm *VM) executeCall(numArgs int) error {
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
 		// 传指针：CompiledFunc 有一百多字节，按值再传一次就多一次拷贝
-		return vm.callFunc(&callee, numArgs)
+		return vm.callFunc(&callee, numArgs, true)
 	case object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
 	default:
@@ -1246,7 +1312,9 @@ func (vm *VM) printTop() {
 	vm.sp--
 }
 
-func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
+// callFunc 建立新帧。calleeOnStack 表示 callee 是否占了操作数栈的一个槽位
+// （OpCallFunc 会占，OpCallFuncConst 不会），它决定返回值该落回哪里。
+func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int, calleeOnStack bool) error {
 	if numArgs != fn.ParametersNum {
 		return fmt.Errorf(format.Alert+"wrong number of arguments: want=%d, got=%d",
 			fn.ParametersNum, numArgs)
@@ -1276,10 +1344,15 @@ func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
 	frame.ins = fn.Instructions
 	frame.lines = fn.Lines
 	frame.vars = newVars
-	frame.basePoint = vm.sp - numArgs
+	frame.basePoint = basePoint
 	frame.localsBase = base
 	frame.Name = fn.FnName
 	frame.Line = fn.LineLoc
+	// 返回值落回的位置：callee 在栈上时覆盖 callee 那一格，否则就是 basePoint
+	frame.retTo = basePoint
+	if calleeOnStack {
+		frame.retTo = basePoint - 1
+	}
 	return nil
 }
 

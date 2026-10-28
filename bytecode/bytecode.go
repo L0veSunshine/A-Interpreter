@@ -101,6 +101,25 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 		return "return " + b.operandName(byte(operand[0]), operand[1], scope)
 	case "OpBinReturn":
 		return "return " + opName(code.Opcode(operand[0]))
+	case "OpCmpBranch":
+		if len(operand) != 5 {
+			return ""
+		}
+		kindAB := byte(operand[0])
+		return b.operandName(kindAB>>4, operand[2], scope) + " " +
+			opName(code.Opcode(operand[1])) + " " +
+			b.operandName(kindAB&0x0f, operand[3], scope) +
+			" → false " + strconv.Itoa(operand[4])
+	case "OpCallFuncConst":
+		if len(operand) != 2 {
+			return ""
+		}
+		args = strconv.Itoa(operand[1])
+		if operand[0] < len(b.Constants) {
+			if fn, ok := b.Constants[operand[0]].(object.CompiledFunc); ok {
+				return "Get Func <" + fn.FnName + ">, " + args
+			}
+		}
 	}
 	return args
 }

@@ -23,10 +23,33 @@ func (o Op) Name() string {
 func (o Op) IsJump() bool { return o.Opcode == code.OpJump }
 
 // IsCondJump 判断是否为条件跳转。
-func (o Op) IsCondJump() bool { return o.Opcode == code.OpJumpNotTrue }
+// OpCmpBranch 是融合后的"比较 + 条件跳转"，同样有两个后继。
+func (o Op) IsCondJump() bool {
+	return o.Opcode == code.OpJumpNotTrue || o.Opcode == code.OpCmpBranch
+}
 
 // IsExit 判断该指令是否结束当前函数的控制流。
-func (o Op) IsExit() bool { return o.Opcode == code.OpReturnVal }
+func (o Op) IsExit() bool {
+	switch o.Opcode {
+	case code.OpReturnVal, code.OpReturnOperand, code.OpBinReturn:
+		return true
+	}
+	return false
+}
+
+// Target 返回跳转目标偏移；不是跳转时返回 -1。
+//
+// 注意融合指令（OpCmpBranch）把目标放在最后一个操作数里，
+// 所以不能一律取 Operands[0]。
+func (o Op) Target() int {
+	if len(o.Operands) == 0 {
+		return -1
+	}
+	if o.IsJump() || o.IsCondJump() {
+		return o.Operands[len(o.Operands)-1]
+	}
+	return -1
+}
 
 // Block 是基本块：一段只有单入口单出口的直线指令序列。
 type Block struct {
@@ -69,11 +92,12 @@ func Build(ins code.Instructions) (*Graph, error) {
 
 	leaders := map[int]bool{0: true}
 	for _, o := range ops {
-		switch {
-		case o.IsJump(), o.IsCondJump():
-			leaders[o.Operands[0]] = true
+		if t := o.Target(); t >= 0 {
+			leaders[t] = true
 			leaders[o.Offset+o.Width] = true
-		case o.IsExit():
+			continue
+		}
+		if o.IsExit() {
 			leaders[o.Offset+o.Width] = true
 		}
 	}
@@ -102,9 +126,9 @@ func Build(ins code.Instructions) (*Graph, error) {
 		}
 		switch {
 		case last.IsJump():
-			g.link(b, last.Operands[0])
+			g.link(b, last.Target())
 		case last.IsCondJump():
-			g.link(b, last.Operands[0])
+			g.link(b, last.Target())
 			g.link(b, b.End) // 条件不成立时顺序落到下一块
 		case last.IsExit():
 		default:
@@ -236,15 +260,17 @@ func (g *Graph) CompactLines(ins code.Instructions, lines []code.LineEntry) (cod
 			}
 			moved[o.Offset] = len(out)
 			operands := o.Operands
-			if o.IsJump() || o.IsCondJump() {
-				to, ok := g.byOffset[o.Operands[0]]
+			if t := o.Target(); t >= 0 {
+				to, ok := g.byOffset[t]
 				if !ok {
 					return nil, nil, fmt.Errorf("cfg: jump at %d targets outside instructions", o.Offset)
 				}
 				if !to.Reachable {
 					return nil, nil, fmt.Errorf("cfg: reachable jump at %d targets dead block", o.Offset)
 				}
-				operands = []int{newStart[to]}
+				// 只替换目标操作数（它在最后），其余操作数原样保留
+				operands = append([]int(nil), o.Operands...)
+				operands[len(operands)-1] = newStart[to]
 			}
 			out = append(out, code.Make(o.Opcode, operands...)...)
 		}

@@ -24,7 +24,11 @@ func (f *Function) optimize() error {
 		if f.foldConstants() {
 			changed = true
 		}
-		if f.simplifyBranches() {
+		simplified, err := f.simplifyBranches()
+		if err != nil {
+			return err
+		}
+		if simplified {
 			changed = true
 		}
 		if f.cse() {
@@ -40,7 +44,9 @@ func (f *Function) optimize() error {
 			break
 		}
 	}
-	return nil
+	// 收尾自检：任何结构性错误都让调用方放弃优化（保留未优化字节码），
+	// 绝不能让错误的 IR 走到降级阶段。
+	return f.validate()
 }
 
 // foldConstants 把操作数全为常量的指令直接算出结果。
@@ -103,7 +109,11 @@ func (f *Function) constOf(v ValueID) (object.Object, bool) {
 }
 
 // simplifyBranches 把"条件恒为常量"的分支变成无条件跳转。
-func (f *Function) simplifyBranches() bool {
+// simplifyBranches 把"条件为常量"的分支直接改成跳转。
+//
+// 注意：它改了 terminator，所以必须调用 relink()——否则死块对后续 pass
+// 不可见，join 块的 phi 实参也会与新的前驱列表错位。
+func (f *Function) simplifyBranches() (bool, error) {
 	changed := false
 	for _, b := range f.Blocks {
 		last := b.Last()
@@ -127,7 +137,14 @@ func (f *Function) simplifyBranches() bool {
 		last.Args = nil
 		changed = true
 	}
-	return changed
+	// 改了 terminator，必须重连 CFG：否则(1)死块对后续 pass 不可见，
+	// (2)join 块的 phi 实参会和新的前驱列表错位。
+	if changed {
+		if err := f.relink(); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
 }
 
 // constTruthy 复刻 vm.objToNativeBool 的真值语义。
@@ -330,7 +347,10 @@ func (f *Function) removeUnreachable() bool {
 			last.Imm2 = newID[last.Imm2]
 		}
 	}
-	f.linkBlocks()
+	// 重连 CFG 并同步 phi 实参：被删掉的块可能正是某些 phi 的前驱
+	if err := f.relink(); err != nil {
+		return false
+	}
 	return true
 }
 

@@ -49,7 +49,8 @@ func scan(ins code.Instructions) (total, fused int) {
 			width += w
 		}
 		switch op {
-		case code.OpBinFused, code.OpReturnOperand, code.OpBinReturn:
+		case code.OpBinFused, code.OpReturnOperand, code.OpBinReturn,
+			code.OpCmpBranch, code.OpCallFuncConst:
 			fused++
 		}
 		total++

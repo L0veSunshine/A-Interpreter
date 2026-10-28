@@ -290,12 +290,48 @@ func (e *emitter) emitValue(v ValueID, done map[ValueID]bool) error {
 		return e.loadValue(v)
 	}
 	done[v] = true
+	// 常量 callee 的调用：callee 不压栈，直接按常量发调用
+	if fnIdx, ok := e.constCallee(d); ok {
+		for _, a := range d.Args[1:] {
+			if err := e.emitValue(a, done); err != nil {
+				return err
+			}
+		}
+		e.emit(code.OpCallFuncConst, fnIdx, len(d.Args)-1)
+		return nil
+	}
 	for _, a := range d.Args {
 		if err := e.emitValue(a, done); err != nil {
 			return err
 		}
 	}
 	return e.emitOp(d)
+}
+
+// constCallee 判断一次调用的 callee 是否来自常量池里的函数对象，且只被这一次
+// 调用使用。满足时可以直接发 OpCallFuncConst，把 callee 从操作数栈上完全省掉
+// —— 每次调用少一条 OpClosure（一条指令 + 一次接口写栈 + 一次读栈）。
+func (e *emitter) constCallee(in *Instr) (int, bool) {
+	if in.Op != OpCall || len(in.Args) == 0 {
+		return 0, false
+	}
+	callee := in.Args[0]
+	if callee == NoValue || int(callee) >= len(e.useCount) || e.useCount[callee] != 1 {
+		return 0, false
+	}
+	d := e.fn.Def(callee)
+	if d == nil || d.Op != OpMakeClosure {
+		return 0, false
+	}
+	return d.Imm, true
+}
+
+// callOperands 返回"需要压栈"的实参：常量 callee 不占栈，所以要从 Args[0] 之后算起。
+func (e *emitter) callOperands(in *Instr) []ValueID {
+	if _, ok := e.constCallee(in); ok {
+		return in.Args[1:]
+	}
+	return in.Args
 }
 
 func (e *emitter) emitBlock(b *Block) error {
@@ -315,7 +351,7 @@ func (e *emitter) emitBlock(b *Block) error {
 
 		if in.Dst == NoValue {
 			// 无结果的指令：先把实参算到栈上，再执行
-			for _, a := range in.Args {
+			for _, a := range e.callOperands(in) {
 				if err := e.emitValue(a, done); err != nil {
 					return err
 				}
@@ -333,7 +369,7 @@ func (e *emitter) emitBlock(b *Block) error {
 				done[in.Dst] = true
 				continue
 			}
-			for _, a := range in.Args {
+			for _, a := range e.callOperands(in) {
 				if err := e.emitValue(a, done); err != nil {
 					return err
 				}
@@ -352,7 +388,7 @@ func (e *emitter) emitBlock(b *Block) error {
 		}
 
 		// 需要落槽位
-		for _, a := range in.Args {
+		for _, a := range e.callOperands(in) {
 			if err := e.emitValue(a, done); err != nil {
 				return err
 			}
@@ -482,6 +518,11 @@ func (e *emitter) emitOp(in *Instr) error {
 	case OpCall:
 		if len(in.Args) == 0 {
 			return bail("call without callee")
+		}
+		// callee 是常量池里的函数且只被这次调用使用：直接按常量调用
+		if fnIdx, ok := e.constCallee(in); ok {
+			e.emit(code.OpCallFuncConst, fnIdx, len(in.Args)-1)
+			return nil
 		}
 		e.emit(code.OpCallFunc, len(in.Args)-1)
 

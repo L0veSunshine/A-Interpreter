@@ -1,6 +1,9 @@
 package code
 
-import "fmt"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // 本文件实现"超指令"（superinstruction）融合。
 //
@@ -95,91 +98,173 @@ func (c *fuseContext) reusable(head, i int) bool {
 	return c.lineOf(c.insts[head].offset) == c.lineOf(c.insts[i].offset)
 }
 
-// tryFuse 尝试在 i 处融合，返回融合后的指令字节与被合并的指令条数。
-func (c *fuseContext) tryFuse(i int) (Instructions, int, bool) {
-	// 规则 1（最长优先）：操作数 + 操作数 + 二元运算
-	if fused, ok := c.fuseOperandOperandBin(i); ok {
-		return fused, 3, true
+// fusion 描述一次融合的结果。
+type fusion struct {
+	blob     Instructions
+	consumed int
+	// patchOff >= 0 时，blob 里偏移 patchOff 处的 u16 是跳转目标，
+	// 需要在重排偏移后被改写成 patchTarget 的新位置。
+	patchOff    int
+	patchTarget int
+}
+
+// tryFuse 尝试在 i 处融合，返回融合结果与被合并的指令条数。
+func (c *fuseContext) tryFuse(i int) (fusion, bool) {
+	// 长模式优先：比较 + 条件分支
+	if f, ok := c.fuseCmpBranch(i); ok {
+		return f, true
 	}
-	// 规则 2：操作数 + 返回
-	if fused, ok := c.fuseOperandReturn(i); ok {
-		return fused, 2, true
+	// 操作数 + 操作数 + 二元运算
+	if f, ok := c.fuseOperandOperandBin(i); ok {
+		return f, true
 	}
-	// 规则 3：二元运算 + 返回
-	if fused, ok := c.fuseBinReturn(i); ok {
-		return fused, 2, true
+	// 操作数 + 返回
+	if f, ok := c.fuseOperandReturn(i); ok {
+		return f, true
 	}
-	return nil, 0, false
+	// 二元运算 + 返回
+	if f, ok := c.fuseBinReturn(i); ok {
+		return f, true
+	}
+	return fusion{}, false
+}
+
+// fuseCmpBranch 匹配"两个操作数 + 比较 + 条件跳转"。
+//
+// 这是条件判断最常见的形状（`if (a < 10) {...}` / `for (...; i < n; ...)`）。
+// 合并之后布尔结果完全不需要物化到操作数栈上——省掉一次接口写栈、
+// 一次读栈，以及一次 objToNativeBool 转换。
+//
+//	原序列 3+3+1+3 = 10 字节、4 次派发
+//	融合后 1+1+1+2+2+2 = 9 字节、1 次派发
+func (c *fuseContext) fuseCmpBranch(i int) (fusion, bool) {
+	if i+3 >= len(c.insts) {
+		return fusion{}, false
+	}
+	for k := 0; k < 3; k++ {
+		if !c.contiguous(i + k) {
+			return fusion{}, false
+		}
+	}
+	kindA, okA := operandKind(c.insts[i].op)
+	kindB, okB := operandKind(c.insts[i+1].op)
+	if !okA || !okB {
+		return fusion{}, false
+	}
+	if !IsCompareOp(c.insts[i+2].op) || c.insts[i+3].op != OpJumpNotTrue {
+		return fusion{}, false
+	}
+	for k := 1; k <= 3; k++ {
+		if !c.reusable(i, i+k) {
+			return fusion{}, false
+		}
+	}
+	blob := Make(OpCmpBranch,
+		int(kindA<<4|kindB),
+		int(c.insts[i+2].op),
+		c.insts[i].operands[0],
+		c.insts[i+1].operands[0],
+		0, // 目标先占位，等所有偏移算完再回填
+	)
+	return fusion{
+		blob:        blob,
+		consumed:    4,
+		patchOff:    7, // opcode(1) + kindAB(1) + cmpOp(1) + idxA(2) + idxB(2)
+		patchTarget: c.insts[i+3].operands[0],
+	}, true
 }
 
 // fuseOperandOperandBin 匹配 OpGetLocal/OpGetGlobal/OpConstant 两条 + 二元运算。
 //
 //	原序列 3+3+1 = 7 字节、3 次派发
 //	融合后 1+1+1+2+2 = 7 字节、1 次派发
-func (c *fuseContext) fuseOperandOperandBin(i int) (Instructions, bool) {
+func (c *fuseContext) fuseOperandOperandBin(i int) (fusion, bool) {
 	if i+2 >= len(c.insts) || !c.contiguous(i) || !c.contiguous(i+1) {
-		return nil, false
+		return fusion{}, false
 	}
 	kindA, okA := operandKind(c.insts[i].op)
 	if !okA {
-		return nil, false
+		return fusion{}, false
 	}
 	kindB, okB := operandKind(c.insts[i+1].op)
 	if !okB {
-		return nil, false
+		return fusion{}, false
 	}
 	op := c.insts[i+2].op
 	if !isBinaryOp(op) {
-		return nil, false
+		return fusion{}, false
 	}
 	if !c.reusable(i, i+1) || !c.reusable(i, i+2) {
-		return nil, false
+		return fusion{}, false
 	}
-	return Make(OpBinFused,
-		int(kindA<<4|kindB),
-		int(op),
-		c.insts[i].operands[0],
-		c.insts[i+1].operands[0],
-	), true
+	return fusion{
+		blob: Make(OpBinFused,
+			int(kindA<<4|kindB),
+			int(op),
+			c.insts[i].operands[0],
+			c.insts[i+1].operands[0],
+		),
+		consumed: 3,
+		patchOff: -1,
+	}, true
 }
 
 // fuseOperandReturn 匹配"压入一个操作数 + 返回"。
 //
 //	原序列 3+1 = 4 字节、2 次派发；融合后 1+1+2 = 4 字节、1 次派发
-func (c *fuseContext) fuseOperandReturn(i int) (Instructions, bool) {
+func (c *fuseContext) fuseOperandReturn(i int) (fusion, bool) {
 	if !c.contiguous(i) {
-		return nil, false
+		return fusion{}, false
 	}
 	kind, ok := operandKind(c.insts[i].op)
 	if !ok || c.insts[i+1].op != OpReturnVal {
-		return nil, false
+		return fusion{}, false
 	}
 	if !c.reusable(i, i+1) {
-		return nil, false
+		return fusion{}, false
 	}
-	return Make(OpReturnOperand, int(kind), c.insts[i].operands[0]), true
+	return fusion{
+		blob:     Make(OpReturnOperand, int(kind), c.insts[i].operands[0]),
+		consumed: 2,
+		patchOff: -1,
+	}, true
 }
 
 // fuseBinReturn 匹配"二元运算 + 返回"。
 //
 //	原序列 1+1 = 2 字节、2 次派发；融合后 1+1 = 2 字节、1 次派发
-func (c *fuseContext) fuseBinReturn(i int) (Instructions, bool) {
+func (c *fuseContext) fuseBinReturn(i int) (fusion, bool) {
 	if !c.contiguous(i) {
-		return nil, false
+		return fusion{}, false
 	}
 	if !isBinaryOp(c.insts[i].op) || c.insts[i+1].op != OpReturnVal {
-		return nil, false
+		return fusion{}, false
 	}
 	if !c.reusable(i, i+1) {
-		return nil, false
+		return fusion{}, false
 	}
-	return Make(OpBinReturn, int(c.insts[i].op)), true
+	return fusion{
+		blob:     Make(OpBinReturn, int(c.insts[i].op)),
+		consumed: 2,
+		patchOff: -1,
+	}, true
 }
 
 // jumpPatch 记录一条待改写的跳转。
 type jumpPatch struct {
-	pos    int // 跳转指令在新流里的起始偏移
-	target int // 原流里的目标偏移
+	pos        int // 跳转指令（或含跳转的融合指令）在新流里的起始偏移
+	operandOff int // 目标操作数相对 pos 的偏移
+	target     int // 原流里的目标偏移
+}
+
+// patch 把一条 2 字节跳转目标写到新流里。
+func (p jumpPatch) apply(out Instructions, newOffset map[int]int) error {
+	to, ok := newOffset[p.target]
+	if !ok {
+		return fmt.Errorf("code: jump target %d has no new offset", p.target)
+	}
+	binary.BigEndian.PutUint16(out[p.pos+p.operandOff:], uint16(to))
+	return nil
 }
 
 // Fuse 把常见的相邻指令合并成融合指令。
@@ -201,17 +286,23 @@ func Fuse(ins Instructions, lines []LineEntry) (Instructions, []LineEntry, error
 	isTarget := make([]bool, len(ins))
 	isTarget[0] = true
 	for _, it := range insts {
-		if it.op != OpJump && it.op != OpJumpNotTrue {
+		var target int
+		switch it.op {
+		case OpJump, OpJumpNotTrue:
+			target = it.operands[0]
+		case OpCmpBranch:
+			// 融合指令自带一个跳转目标（最后一个操作数）
+			target = it.operands[len(it.operands)-1]
+		default:
 			continue
 		}
 		if len(it.operands) == 0 {
 			return ins, lines, fmt.Errorf("code: jump at offset %d has no operand", it.offset)
 		}
-		t := it.operands[0]
-		if t < 0 || t >= len(ins) {
-			return ins, lines, fmt.Errorf("code: jump at offset %d targets %d, out of range", it.offset, t)
+		if target < 0 || target >= len(ins) {
+			return ins, lines, fmt.Errorf("code: jump at offset %d targets %d, out of range", it.offset, target)
 		}
-		isTarget[t] = true
+		isTarget[target] = true
 	}
 
 	ctx := &fuseContext{
@@ -227,25 +318,36 @@ func Fuse(ins Instructions, lines []LineEntry) (Instructions, []LineEntry, error
 	fused := 0
 
 	for i := 0; i < len(insts); {
-		if blob, consumed, ok := ctx.tryFuse(i); ok {
+		if f, ok := ctx.tryFuse(i); ok {
 			head := insts[i].offset
 			newOffset[head] = len(out)
 			// 被吞掉的指令映射到融合指令起点：如果真有人跳到它们，
 			// 也只会跳到这条等价指令的开头（isTarget 已保证不会发生）
-			for k := 1; k < consumed; k++ {
+			for k := 1; k < f.consumed; k++ {
 				newOffset[insts[i+k].offset] = len(out)
 			}
-			out = append(out, blob...)
-			appendLine(&outLines, lines, head, len(out)-len(blob))
+			if f.patchOff >= 0 {
+				patches = append(patches, jumpPatch{
+					pos:        len(out),
+					operandOff: f.patchOff,
+					target:     f.patchTarget,
+				})
+			}
+			out = append(out, f.blob...)
+			appendLine(&outLines, lines, head, len(out)-len(f.blob))
 			fused++
-			i += consumed
+			i += f.consumed
 			continue
 		}
 
 		it := insts[i]
 		newOffset[it.offset] = len(out)
 		if it.op == OpJump || it.op == OpJumpNotTrue {
-			patches = append(patches, jumpPatch{pos: len(out), target: it.operands[0]})
+			patches = append(patches, jumpPatch{
+				pos:        len(out),
+				operandOff: 1,
+				target:     it.operands[0],
+			})
 		}
 		out = append(out, ins[it.offset:it.offset+it.size]...)
 		appendLine(&outLines, lines, it.offset, len(out)-it.size)
@@ -257,13 +359,9 @@ func Fuse(ins Instructions, lines []LineEntry) (Instructions, []LineEntry, error
 	}
 
 	for _, p := range patches {
-		to, ok := newOffset[p.target]
-		if !ok {
-			return ins, lines, fmt.Errorf("code: jump target %d has no new offset", p.target)
+		if err := p.apply(out, newOffset); err != nil {
+			return ins, lines, err
 		}
-		op := Opcode(out[p.pos])
-		rewritten := Make(op, to)
-		copy(out[p.pos:p.pos+len(rewritten)], rewritten)
 	}
 	return out, outLines, nil
 }

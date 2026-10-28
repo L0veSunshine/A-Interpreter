@@ -68,6 +68,14 @@ const (
 	OpReturnOperand
 	// OpBinReturn:     [binOp u8]，等价于「执行 binOp、返回」。
 	OpBinReturn
+	// OpCmpBranch:     [kindAB u8][cmpOp u8][idxA u16][idxB u16][falseTarget u16]
+	//                  等价于「比较 A、B，结果为假时跳到 falseTarget」。
+	//                  这样就完全不需要把布尔结果物化到操作数栈上。
+	OpCmpBranch
+	// OpCallFuncConst: [fnIdx u16][nargs u8]
+	//                  等价于「压入常量池第 fnIdx 项（函数对象）、压入 nargs 个
+	//                  实参、调用」，但 callee 不进操作数栈——省掉每条 OpClosure。
+	OpCallFuncConst
 )
 
 // 融合指令里"操作数来源"的编号。

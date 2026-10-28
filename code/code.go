@@ -57,6 +57,8 @@ var Definitions = map[Opcode]Definition{
 	OpBinFused:      {"OpBinFused", []int{1, 1, 2, 2}},
 	OpReturnOperand: {"OpReturnOperand", []int{1, 2}},
 	OpBinReturn:     {"OpBinReturn", []int{1}},
+	OpCmpBranch:     {"OpCmpBranch", []int{1, 1, 2, 2, 2}},
+	OpCallFuncConst: {"OpCallFuncConst", []int{2, 1}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

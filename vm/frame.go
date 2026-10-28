@@ -13,6 +13,9 @@ type Frame struct {
 	// localsBase 是 vars 在 vm.locals（所有帧共享的槽位区）里的起始下标。
 	// 帧返回时把 vm.localsTop 退回到这里，就完成了一次零分配回收。
 	localsBase int
+	// retTo 是返回后 vm.sp 应恢复到的位置（返回值写在这里）。
+	// 普通调用是 callee 所在槽位，OpCallFuncConst 的 callee 不在栈上，就是 basePoint。
+	retTo int
 	// lines 是"指令偏移 -> 源码行"映射，报错时用来定位源码行
 	lines []code.LineEntry
 	// Name/Line 用于错误信息定位（栈溢出时报出是哪个函数）

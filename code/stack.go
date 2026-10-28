@@ -109,6 +109,17 @@ func MaxStack(ins Instructions) (int, error) {
 				return 0, err
 			}
 			// 条件不成立时顺序落到下一条
+		case OpCmpBranch:
+			// 融合后的"比较 + 条件跳转"：假目标在最后一个操作数里
+			to, ok := index[it.operands[len(it.operands)-1]]
+			if !ok {
+				return 0, fmt.Errorf("code: branch at %d targets non-instruction offset %d",
+					it.offset, it.operands[len(it.operands)-1])
+			}
+			if err := setDepth(to, out); err != nil {
+				return 0, err
+			}
+			// 比较为真时顺序落到下一条
 		}
 		if i+1 < len(insts) {
 			if err := setDepth(i+1, out); err != nil {
@@ -178,6 +189,14 @@ func stackDelta(op Opcode, operands []int) (int, error) {
 	// 弹出 callee + n 个实参，压回一个返回值
 	case OpCallFunc:
 		return -operands[0], nil
+
+	// 只弹出 n 个实参（callee 来自常量池，不占栈），压回一个返回值
+	case OpCallFuncConst:
+		return 1 - operands[1], nil
+
+	// 比较 + 条件分支：弹出两个操作数后什么都不留
+	case OpCmpBranch:
+		return 0, nil
 
 	// 弹出 self + method + n 个实参，压回 self 与返回值。
 	// 方法可能只返回一个值，那种情况下实际深度更低，

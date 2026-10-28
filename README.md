@@ -119,9 +119,15 @@ c.SetOptimize(false)
 
 | 原序列 | 融合后 | 长度 | 派发 |
 | --- | --- | --- | --- |
+| 两个操作数（局部/常量/全局）+ 比较 + 条件跳转 | `OpCmpBranch` | 10 → 9 字节 | 4 → **1** |
 | `OpGetLocal/OpGetGlobal/OpConstant` + 同左 + 算术/比较 | `OpBinFused` | 7 → 7 字节 | 3 → **1** |
 | `OpGetLocal/OpGetGlobal/OpConstant` + `OpReturnVal` | `OpReturnOperand` | 4 → 4 字节 | 2 → **1** |
 | 算术/比较 + `OpReturnVal` | `OpBinReturn` | 2 → 2 字节 | 2 → **1** |
+| `OpClosure k … OpCallFunc n`（callee 是常量函数且只用于这次调用） | `OpCallFuncConst` | 4 → 4 字节 | 少 **1** 条 |
+
+`OpCmpBranch` 把布尔结果完全消掉——不需要写操作数栈、读回来、再转成 bool。
+`OpCallFuncConst` 由 IR 降级阶段发射：callee 直接从常量池取，不占操作数栈，
+所以每次调用少一条 `OpClosure`。
 
 `OpBinFused` 用 `[kindAB][binOp][idxA][idxB]` 编码，`kindA`/`kindB` 表示操作数
 来自局部变量 / 常量 / 全局变量，所以 3×3 种组合只需要一条指令，
@@ -142,11 +148,35 @@ c.SetOptimize(false)
 实测（fib(30)，同一台机器）：
 
 ```
-融合开   145 ms
-融合关   180 ms      → 融合本身 -19%
+融合开   135 ms
+融合关   170 ms      → 融合本身 -21%
 ```
 
-fib 函数从 12 条指令降到 7 条（3 个 `OpBinFused` + 1 个 `OpReturnOperand` + 1 个 `OpBinReturn`）。
+fib 函数从 12 条指令降到 **7** 条：
+
+```
+ 0 OpCmpBranch      n OpLTEq Int(2) → false 13
+ 9 OpReturnOperand  return n
+13 OpBinFused       n OpSub Int(1)
+20 OpCallFuncConst  Get Func <fib>, 1
+24 OpBinFused       n OpSub Int(2)
+31 OpCallFuncConst  Get Func <fib>, 3
+35 OpBinReturn      return OpAdd
+```
+
+### CFG 维护契约
+
+任何**修改 terminator** 的优化都必须调用 `Function.relink()`
+（[ir/graph.go](ir/graph.go)）：它重算 CFG 的边，并按"前驱块指针"把 phi 的实参
+搬到新的前驱顺序上，消失的前驱对应的实参被丢弃。
+
+这条契约不是洁癖：`simplifyBranches` 曾经把 `OpBranch` 改成 `OpJump` 却不重连，
+于是死块对后续 pass 不可见（IR 层死块删除形同失效），而且一旦有人补上重连，
+join 块的 phi 实参就会与前驱错位——实测会让 `if(0)` 的分支返回**错误结果**。
+
+现在每个 pass 结束后 `optimize()` 还会跑 `validate()`：检查 phi 实参与前驱个数、
+终止指令位置、跳转目标、以及"被使用的值必须有定义点"。任何一条不成立就返回错误，
+调用方按既有契约放弃优化（保留未优化字节码），绝不会把坏 IR 交给 VM。
 
 （顺带修了一个旧问题：`cfg.Compact` 改变指令偏移后没有重映射行号表，
 会导致优化后的程序报错行号漂移。现在由 `CompactLines` 一并处理，并有 UT 防护。）
@@ -155,13 +185,18 @@ fib 函数从 12 条指令降到 7 条（3 个 `OpBinFused` + 1 个 `OpReturnOpe
 
 ```
                     第一轮后        第二轮后        融合后
-LoopArith           123771 ns/op    99680 ns/op    73700 ns/op
-FibRecursive        911324 ns/op   539000 ns/op   469000 ns/op
-ArrayIndex           25980 ns/op    27960 ns/op    15900 ns/op
-DeepRecursion        30137 ns/op    26740 ns/op    20600 ns/op
+LoopArith           123771 ns/op    99680 ns/op    76600 ns/op
+FibRecursive        911324 ns/op   539000 ns/op   427000 ns/op
+ArrayIndex           25980 ns/op    27960 ns/op    16000 ns/op
+DeepRecursion        30137 ns/op    26740 ns/op    19800 ns/op
 
 allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
 ```
+
+注：`OpCmpBranch` 在**分支不可预测**的代码上是净收益（fib(24) 实测 -4%），
+在"分支高度可预测、且循环体本身在大量分配"的循环上会略慢几个百分点
+（推测与间接跳转的目标地址别名有关，属于 CPU 层面效应）。两者相抵仍然划算，
+而且它是后续"分支反转 / 跳转穿线"的前置条件。
 
 ### fib(30) 横向对比
 
@@ -169,7 +204,7 @@ allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
 
 | 实现 | 端到端（含启动，5 次最好） | 进程内纯计算 | 每次调用 |
 | --- | --- | --- | --- |
-| xlang（本项目，字节码解释器） | 0.194 s | ~145 ms | ~54 ns |
+| xlang（本项目，字节码解释器） | 0.194 s | ~135 ms | ~50 ns |
 | CPython 3.14.2 | 0.122 s | ~95 ms | ~35 ns |
 | Node 24.21（V8 JIT） | 0.084 s | ~6.7 ms | ~2.5 ns |
 | Rust 1.99 `-O`（原生） | 0.009 s | ~1.6 ms | ~0.6 ns |
@@ -213,4 +248,8 @@ go test -race ./...     # 竞态
 - `code/fuse_test.go`：模式匹配、跳转目标重映射、拒绝跨行/跨跳转目标融合、
   幂等性、代码量不增长、未知操作码原样返回；
 - `ir/fuse_test.go`：融合开/关的**逐字等价**（含错误信息与行号）、
-  融合确实触发、指令条数下降、融合后字节码仍能通过 CFG 校验、不泄漏操作数栈。
+  融合确实触发、指令条数下降、融合后字节码仍能通过 CFG 校验、不泄漏操作数栈；
+- `vm/superins_test.go`：`OpCmpBranch` / `OpCallFuncConst` 确实被发射、
+  三种操作数来源、错误行号、调用结果的落位、深递归、静态栈上界；
+- `ir/graph_test.go`：`relink` 会按前驱裁剪 phi 实参、无法匹配时必须报错、
+  `validate` 能抓出 phi 错位 / 缺终止指令 / 未定义值 / phi 位置错误。
