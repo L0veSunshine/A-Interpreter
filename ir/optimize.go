@@ -47,15 +47,18 @@ func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 		fn.Instructions = ins
 		fn.Lines = lines
 		fn.LocalsNum = locals
+		// 指令流变了，操作数栈上界必须重算（融合会改变栈操作序列）
+		fn.MaxStack = code.ConservativeMaxStack(ins)
 		pool.objs[i] = fn
 	}
 
 	return &bytecode.Bytecode{
-		Instruction: mainIns,
-		Lines:       mainLines,
-		Constants:   pool.objs,
-		Symbols:     bc.Symbols,
-		MainLocals:  mainLocals,
+		Instruction:  mainIns,
+		Lines:        mainLines,
+		Constants:    pool.objs,
+		Symbols:      bc.Symbols,
+		MainLocals:   mainLocals,
+		MainMaxStack: code.ConservativeMaxStack(mainIns),
 	}, nil
 }
 

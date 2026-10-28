@@ -623,6 +623,17 @@ func (c *Compiler) buildByteCode() *bytecode.Bytecode {
 		Symbols:     ct,
 		MainLocals:  ct.LocalSlots(),
 	}
+	// 编译期算出操作数栈上界（CPython 的 co_stacksize），
+	// VM 建帧时按它预留，执行循环里就不用逐条指令检查容量。
+	byCode.MainMaxStack = code.ConservativeMaxStack(byCode.Instruction)
+	for i, obj := range byCode.Constants {
+		fn, ok := obj.(object.CompiledFunc)
+		if !ok {
+			continue
+		}
+		fn.MaxStack = code.ConservativeMaxStack(fn.Instructions)
+		byCode.Constants[i] = fn
+	}
 	return byCode
 }
 

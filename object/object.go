@@ -51,8 +51,12 @@ type CompiledFunc struct {
 	Lines         []code.LineEntry
 	LocalsNum     int
 	ParametersNum int
-	Called        bool
-	LineLoc       int
+	// MaxStack 是执行本函数需要的操作数栈上界（相对帧基址的形参之后）。
+	// 由编译期数据流算出（见 code.MaxStack），VM 建帧时一次性预留；
+	// 0 表示未知，此时 VM 退回保守预留。
+	MaxStack int
+	Called   bool
+	LineLoc  int
 	// ScopeID 对应解析期的函数作用域，反汇编时用它定位正确的符号表
 	ScopeID int
 }

@@ -41,6 +41,7 @@ func runBytecode(b *bytecode.Bytecode) (string, error) {
 }
 
 // compactAll 对主函数和所有已编译函数的指令流分别做 CFG 压缩。
+// 注意：压缩改变了指令流，操作数栈上界必须重算，否则 VM 预留不足。
 func compactAll(b *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 	out := &bytecode.Bytecode{
 		Constants:  make([]object.Object, len(b.Constants)),
@@ -58,6 +59,7 @@ func compactAll(b *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 				return nil, err
 			}
 			fn.Instructions = ins
+			fn.MaxStack = code.ConservativeMaxStack(ins)
 			obj = fn
 		}
 		out.Constants[i] = obj
@@ -71,6 +73,7 @@ func compactAll(b *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 		return nil, err
 	}
 	out.Instruction = ins
+	out.MainMaxStack = code.ConservativeMaxStack(ins)
 	return out, nil
 }
 

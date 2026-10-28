@@ -17,6 +17,10 @@ const (
 	// 直到 MaxStackSize。原来固定 2048 槽，深递归到 680 层左右就爆栈。
 	InitStackSize = 2048
 	MaxStackSize  = 1 << 20
+	// stackSlack 是预留操作数栈时额外多留的空位。
+	// 静态分析的 MaxStack 是精确上界，多留几个槽位只是防御性余量
+	// （Lua 里对应的常量是 LUA_MINSTACK = 20）。
+	stackSlack = 8
 	// InitGlobalSize 是全局槽位的初始容量，按需增长。
 	// 槽位号来自 2 字节操作数，所以真正的上限是 65536，
 	// 由编译器在越界时报错（见 compiler.emit），VM 这里只兜底。
@@ -150,6 +154,37 @@ func (vm *VM) growStack() error {
 	return nil
 }
 
+// reserveStack 确保操作数栈至少有 need 个槽位。
+//
+// 这是 CPython 的 frame_size / JVM 的 max_stack 思路：建帧时一次性预留，
+// 执行循环里就不再逐条指令检查容量（那是一次比较 + 分支，实测占 5% 左右）。
+// need 由编译期算出的 MaxStack 决定，所以循环里"栈不会溢出"是静态成立的。
+func (vm *VM) reserveStack(need int) error {
+	for len(vm.stack) < need {
+		if err := vm.growStack(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mainStackNeed 返回主函数需要的操作数栈上界。
+// 上界缺失时（0）现算一个保守上界，避免手工构造的字节码绕过预留。
+func (vm *VM) mainStackNeed(bc *bytecode.Bytecode) int {
+	if bc.MainMaxStack > 0 {
+		return bc.MainMaxStack
+	}
+	return code.ConservativeMaxStack(bc.Instruction)
+}
+
+// calleeStackNeed 返回被调函数需要的操作数栈上界。
+func calleeStackNeed(fn *object.CompiledFunc) int {
+	if fn.MaxStack > 0 {
+		return fn.MaxStack
+	}
+	return code.ConservativeMaxStack(fn.Instructions)
+}
+
 // put 直接写到栈顶。调用者必须保证栈上还有空间：
 // Run 在每条指令前统一检查一次（一条指令最多压入一个值），
 // 这样热路径上不必每条指令都做函数调用 + 边界检查。
@@ -209,6 +244,9 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	vm.frames[0].localsBase = 0
 	vm.frames[0].Name = "<main>"
 	vm.constants = bytecode.Constants
+	// 按编译期算出的上界预留操作数栈：之后执行循环里不再检查容量。
+	// 上界缺失（0，例如手工拼的字节码）时退回保守上界，保证仍然安全。
+	vm.reserveStack(vm.mainStackNeed(bytecode) + stackSlack)
 
 	// 把"当前帧"和它的指令流、指令指针提到局部变量里。
 	// 这是解释器循环里最值得做的一处优化：Frame 是个大结构体，
@@ -224,6 +262,12 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	// 统一的错误定位：任何从指令执行里冒出来的错误都补上源码行，
 	// 这样调用方拿到的错误信息能直接指到源码（不需要逐处 return 时处理）
 	defer func() {
+		// 安全网：执行循环不再逐条检查操作数栈容量（改由建帧时按静态
+		// 上界预留），一旦上界算错就会越界。Go 的边界检查会把越界变成
+		// panic 而不是内存破坏，这里把它转成正常错误，避免整个进程崩溃。
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%sinternal: operand stack overflow: %v", format.Alert, r)
+		}
 		// ip 平时只存在于局部变量里，出错/退出时写回，供 locate 定位
 		if n := vm.frameIdx; n > 0 && n <= len(vm.frames) {
 			vm.frames[n-1].ip = ip
@@ -236,13 +280,6 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	for ip < len(ins)-1 {
 		ip++
 		op = code.Opcode(ins[ip])
-		// 一条指令最多压入一个值：在这里统一保证操作数栈还有空位，
-		// 热路径上的 put 就不用再做检查了。
-		if vm.sp >= len(vm.stack) {
-			if err := vm.growStack(); err != nil {
-				return err
-			}
-		}
 		switch op {
 		case code.OpConstant:
 			constIdx := readU16(ins, ip+1)
@@ -1221,6 +1258,14 @@ func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int) error {
 	args := vm.stack[vm.sp-numArgs : vm.sp]
 	for idx, arg := range args {
 		newVars[idx] = arg
+	}
+	// 按被调函数的上界预留操作数栈（CPython 的 frame_size）。
+	// 帧基址是 sp - numArgs，形参已经占着 numArgs 个槽位，
+	// 所以峰值是 basePoint + numArgs + MaxStack。
+	basePoint := vm.sp - numArgs
+	if err := vm.reserveStack(basePoint + numArgs + calleeStackNeed(fn) + stackSlack); err != nil {
+		vm.localsTop = base
+		return err
 	}
 	// 帧直接在其槽位里原地构造，避免 Frame 这个上百字节的结构体被拷来拷去
 	frame, err := vm.pushFrame(fn.FnName, fn.LineLoc)

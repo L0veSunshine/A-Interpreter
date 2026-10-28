@@ -260,3 +260,22 @@ f(3)`
 		t.Fatalf("result = %s, want 26", got)
 	}
 }
+
+// 静态栈上界必须覆盖所有语料。
+//
+// VM 现在不再逐条指令检查操作数栈容量（改由建帧时按 code.MaxStack 预留），
+// 所以一旦上界算小就会越界。这里对全部语料跑一遍：任何
+// "internal: operand stack overflow" 都说明上界算错了。
+func TestStaticStackBoundCoversCorpus(t *testing.T) {
+	for _, tc := range corpus {
+		bc := compileOptimized(t, tc.src, true)
+		m := vm.NewVM()
+		err := m.Run(bc)
+		if err == nil {
+			continue
+		}
+		if strings.Contains(err.Error(), "internal") {
+			t.Fatalf("%s: static stack bound is too small: %v", tc.name, err)
+		}
+	}
+}

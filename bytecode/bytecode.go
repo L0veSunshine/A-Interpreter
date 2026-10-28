@@ -17,6 +17,10 @@ type Bytecode struct {
 	Symbols   *parser.SymTable
 	// MainLocals 是顶层作用域（含顶层块）需要的局部槽位数
 	MainLocals int
+	// MainMaxStack 是主函数运行期需要的操作数栈上界。
+	// VM 在建帧时按它一次性预留，循环里就不必逐条指令检查容量。
+	// 0 表示"未知"，此时 VM 会退回到保守预留。
+	MainMaxStack int
 }
 
 func (b *Bytecode) Ins() string {
