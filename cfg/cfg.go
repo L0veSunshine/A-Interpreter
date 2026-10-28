@@ -181,7 +181,17 @@ func (g *Graph) HasBackEdge() bool {
 //  3. 重算所有跳转目标偏移。
 //
 // 返回重排后的新指令流；调用方需要重新 Build 才能拿到新图。
+// Compact 删除不可达块与"跳到紧邻下一块"的冗余跳转。
+//
+// 注意：压缩会改变指令偏移，因此**行号表必须一起重映射**，
+// 否则运行时报错会指到错误的源码行。需要行号请用 CompactLines。
 func (g *Graph) Compact(ins code.Instructions) (code.Instructions, error) {
+	out, _, err := g.CompactLines(ins, nil)
+	return out, err
+}
+
+// CompactLines 与 Compact 相同，但额外把行号表重映射到新偏移上。
+func (g *Graph) CompactLines(ins code.Instructions, lines []code.LineEntry) (code.Instructions, []code.LineEntry, error) {
 	live := make([]*Block, 0, len(g.Blocks))
 	for _, b := range g.Blocks {
 		if b.Reachable {
@@ -217,19 +227,22 @@ func (g *Graph) Compact(ins code.Instructions) (code.Instructions, error) {
 
 	// 第二遍：按需改写跳转操作数并输出
 	out := make(code.Instructions, 0, pos)
+	// oldOffset -> newOffset，用于重映射行号表
+	moved := make(map[int]int, len(ins))
 	for _, b := range live {
 		for i, o := range b.Ops {
 			if dropLast[b] && i == len(b.Ops)-1 {
 				continue
 			}
+			moved[o.Offset] = len(out)
 			operands := o.Operands
 			if o.IsJump() || o.IsCondJump() {
 				to, ok := g.byOffset[o.Operands[0]]
 				if !ok {
-					return nil, fmt.Errorf("cfg: jump at %d targets outside instructions", o.Offset)
+					return nil, nil, fmt.Errorf("cfg: jump at %d targets outside instructions", o.Offset)
 				}
 				if !to.Reachable {
-					return nil, fmt.Errorf("cfg: reachable jump at %d targets dead block", o.Offset)
+					return nil, nil, fmt.Errorf("cfg: reachable jump at %d targets dead block", o.Offset)
 				}
 				operands = []int{newStart[to]}
 			}
@@ -237,9 +250,29 @@ func (g *Graph) Compact(ins code.Instructions) (code.Instructions, error) {
 		}
 	}
 	if len(out) != pos {
-		return nil, fmt.Errorf("cfg: layout mismatch: %d != %d", len(out), pos)
+		return nil, nil, fmt.Errorf("cfg: layout mismatch: %d != %d", len(out), pos)
 	}
-	return out, nil
+	return out, remapLines(lines, moved), nil
+}
+
+// remapLines 把行号表按"旧偏移 -> 新偏移"重映射。
+// 找不到对应位置的条目直接丢弃（它属于被删掉的指令）。
+func remapLines(lines []code.LineEntry, moved map[int]int) []code.LineEntry {
+	if len(lines) == 0 {
+		return lines
+	}
+	out := make([]code.LineEntry, 0, len(lines))
+	for _, e := range lines {
+		to, ok := moved[e.Offset]
+		if !ok {
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1].Line == e.Line {
+			continue
+		}
+		out = append(out, code.LineEntry{Offset: to, Line: e.Line})
+	}
+	return out
 }
 
 // Decode 把字节流解码成指令列表。

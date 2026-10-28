@@ -314,22 +314,59 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			frame = vm.currentFrame()
 			ins, ip = frame.ins, frame.ip
 		case code.OpReturnVal:
-			returnVal := vm.pop()
-			if vm.frameIdx <= 1 {
-				return fmt.Errorf(format.Alert + "return outside of a function")
+			if err := vm.returnTop(); err != nil {
+				return err
 			}
+			frame = vm.currentFrame()
+			ins, ip = frame.ins, frame.ip
 
-			ret := vm.popFrame()
-			vm.sp = ret.basePoint - 1
-			if vm.sp < 0 {
-				vm.sp = 0
+		// ---- 融合指令（由 code.Fuse 生成，语义与原序列逐条等价）----
+		case code.OpBinFused:
+			// [kindAB][binOp][idxA][idxB] == 压入 A、压入 B、执行 binOp。
+			// 这里故意走原有的 executeBinOp/compareBinOp 路径：
+			// 语义由构造保证与未融合时逐字一致，省下的是 2 次派发。
+			kindAB := ins[ip+1]
+			subOp := code.Opcode(ins[ip+2])
+			idxA := readU16(ins, ip+3)
+			idxB := readU16(ins, ip+5)
+			left := vm.fusedOperand(kindAB>>4, idxA, frame)
+			right := vm.fusedOperand(kindAB&0x0f, idxB, frame)
+			// 两个操作数从来没有真的进栈：直接算出结果再压栈。
+			// 这样比"压两个值再调 executeBinOp"快得多 —— 每次接口写栈
+			// 都要过 GC 写屏障，比省下的派发开销还贵。
+			var res object.Object
+			var binErr error
+			if isCompareOpcode(subOp) {
+				res, binErr = resolveCmpOp(subOp, left, right)
+			} else {
+				res, binErr = vm.resolveArithOp(subOp, left, right)
 			}
-			// 回收这个帧的局部槽位：整段直接还给槽位区，无需逐个清理
-			if ret.localsBase >= 0 && ret.localsBase <= vm.localsTop {
-				vm.localsTop = ret.localsBase
+			// 先算、后移动 ip：出错时 ip 仍指向本条指令，行号定位才准确
+			if binErr != nil {
+				return binErr
 			}
-
-			vm.put(returnVal)
+			ip += 6
+			vm.put(res)
+		case code.OpReturnOperand:
+			// [kind][idx] == 压入该操作数并返回
+			val := vm.fusedOperand(ins[ip+1], readU16(ins, ip+2), frame)
+			vm.put(val)
+			ip += 3
+			if err := vm.returnTop(); err != nil {
+				return err
+			}
+			frame = vm.currentFrame()
+			ins, ip = frame.ins, frame.ip
+		case code.OpBinReturn:
+			// [binOp] == 执行 binOp 并返回（操作数已在栈上）
+			subOp := code.Opcode(ins[ip+1])
+			if err := vm.executeBinOp(subOp); err != nil {
+				return err
+			}
+			ip += 1
+			if err := vm.returnTop(); err != nil {
+				return err
+			}
 			frame = vm.currentFrame()
 			ins, ip = frame.ins, frame.ip
 		case code.OpSetLocal:
@@ -448,60 +485,132 @@ func (vm *VM) callMethod(argsNum int) error {
 func (vm *VM) executeBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
-	// 用类型断言代替 Type() 字符串比较：Type() 返回的是字符串，
-	// 每做一次算术都要比较好几轮字符串，而接口断言只比 itab 指针。
+	// 整数快路径留在本函数内（与 resolveIntBinOp 共用语义实现），
+	// 这样每条二元运算只有一层调用，不会因为"值返回"重构而变慢。
 	if l, ok := left.(object.Int); ok {
 		if r, ok := right.(object.Int); ok {
-			return vm.executeBinOpInt(op, l.Value, r.Value)
+			res, err := resolveIntBinOp(op, l.Value, r.Value)
+			if err != nil {
+				return err
+			}
+			return vm.replace(res)
 		}
 	}
+	res, err := vm.resolveArithSlow(op, left, right)
+	if err != nil {
+		return err
+	}
+	return vm.replace(res)
+}
+
+// isCompareOpcode 判断操作码是不是比较运算。
+// 比较操作码在枚举里是连续的一段，用区间判断比查表更快。
+func isCompareOpcode(op code.Opcode) bool {
+	return op >= code.OpGT && op <= code.OpNotEQ
+}
+
+// resolveArithOp 计算 left op right，不碰操作数栈。
+//
+// 与 executeBinOp 共用同一份语义实现（resolveIntBinOp / resolveArithSlow），
+// 区别只在于它不"压栈再弹出"——融合指令的两个操作数从来没有进过操作数栈。
+func (vm *VM) resolveArithOp(op code.Opcode, left, right object.Object) (object.Object, error) {
+	if l, ok := left.(object.Int); ok {
+		if r, ok := right.(object.Int); ok {
+			return resolveIntBinOp(op, l.Value, r.Value)
+		}
+	}
+	return vm.resolveArithSlow(op, left, right)
+}
+
+// resolveCmpOp 是比较运算的值返回版本，与 compareBinOp 共用同一份语义实现。
+func resolveCmpOp(op code.Opcode, left, right object.Object) (object.Object, error) {
+	if lv, ok := numOf(left); ok {
+		if rv, ok := numOf(right); ok {
+			return resolveNumCompare(op, lv, rv)
+		}
+	}
+	return resolveCmpSlow(op, left, right)
+}
+
+// executeStackBinaryTail 完成一次二元运算的完整栈效果：
+// 弹出两个值、压入一个结果。只给融合指令 OpBinReturn 用 ——
+// 它要到运行时才知道是哪一种运算，所以需要先分派再执行。
+func (vm *VM) executeStackBinaryTail(op code.Opcode) error {
+	if isCompareOpcode(op) {
+		return vm.compareBinOp(op)
+	}
+	return vm.executeBinOp(op)
+}
+
+// resolveArithSlow 处理字符串、浮点与类型错误（算术的冷路径）。
+// 分支顺序必须与原 in-place 版本一致（ir 包有 36 个交叉验证用例）。
+func (vm *VM) resolveArithSlow(op code.Opcode, left, right object.Object) (object.Object, error) {
 	if _, ok := left.(object.String); ok {
-		return vm.executeBinOpStr(op, left, right)
+		return resolveStrBinOp(op, left, right)
 	}
 	if _, ok := right.(object.String); ok {
-		return vm.executeBinOpStr(op, left, right)
+		return resolveStrBinOp(op, left, right)
 	}
 	if _, ok := right.(object.Float); ok {
-		return vm.executeBinOpFloat(op, left, right)
+		return resolveFloatBinOp(op, left, right)
 	}
 	if _, ok := left.(object.Float); ok {
-		return vm.executeBinOpFloat(op, left, right)
+		return resolveFloatBinOp(op, left, right)
 	}
-	return fmt.Errorf(format.Alert+"unsupported types for binary operation: %s(%s) %s(%s) %s",
+	return nil, fmt.Errorf(format.Alert+"unsupported types for binary operation: %s(%s) %s(%s) %s",
 		left.Type(), left.Inspect(), right.Type(), right.Inspect(), code.Definitions[op].Name)
 }
 
 func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
+	// 数值比较快路径留在本函数内，理由同 executeBinOp。
 	if lv, ok := numOf(left); ok {
 		if rv, ok := numOf(right); ok {
-			var res bool
-			switch op {
-			case code.OpEqual:
-				res = lv == rv
-			case code.OpNotEQ:
-				res = lv != rv
-			case code.OpGT:
-				res = lv > rv
-			case code.OpGTEq:
-				res = lv >= rv
-			case code.OpLT:
-				res = lv < rv
-			case code.OpLTEq:
-				res = lv <= rv
-			default:
-				return fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
+			res, err := resolveNumCompare(op, lv, rv)
+			if err != nil {
+				return err
 			}
-			return vm.replace(boolObj(res))
+			return vm.replace(res)
 		}
 	}
-	if _, ok := left.(object.String); ok {
-		if _, ok := right.(object.String); ok {
-			return vm.compareStringObj(op, left, right)
+	res, err := resolveCmpSlow(op, left, right)
+	if err != nil {
+		return err
+	}
+	return vm.replace(res)
+}
+
+// resolveNumCompare 数值比较：一律按 float64 语义（与原实现一致）。
+func resolveNumCompare(op code.Opcode, lv, rv float64) (object.Object, error) {
+	var res bool
+	switch op {
+	case code.OpEqual:
+		res = lv == rv
+	case code.OpNotEQ:
+		res = lv != rv
+	case code.OpGT:
+		res = lv > rv
+	case code.OpGTEq:
+		res = lv >= rv
+	case code.OpLT:
+		res = lv < rv
+	case code.OpLTEq:
+		res = lv <= rv
+	default:
+		return nil, fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
+	}
+	return boolObj(res), nil
+}
+
+// resolveCmpSlow 处理字符串比较、复合类型比较与类型错误。
+func resolveCmpSlow(op code.Opcode, left, right object.Object) (object.Object, error) {
+	if ls, ok := left.(object.String); ok {
+		if rs, ok := right.(object.String); ok {
+			return resolveStringCompare(op, ls, rs)
 		}
 	}
-	return vm.compareObj(op, left, right)
+	return resolveObjCompare(op, left, right)
 }
 
 // numOf 把数值对象取成 float64；比较一律按浮点语义（与原实现一致）。
@@ -515,7 +624,7 @@ func numOf(obj object.Object) (float64, bool) {
 	return 0, false
 }
 
-func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
+func resolveObjCompare(op code.Opcode, left, right object.Object) (object.Object, error) {
 	// 不能用哈希值比较：Array/Map 等复合类型没有稳定的哈希语义
 	eq := object.RichCompare(left, right)
 	var res bool
@@ -525,15 +634,15 @@ func (vm *VM) compareObj(op code.Opcode, left, right object.Object) error {
 	case code.OpNotEQ:
 		res = !eq
 	default:
-		return fmt.Errorf(format.Alert+"unsupport operator for object(%s,%s): %d", left.Inspect(),
+		return nil, fmt.Errorf(format.Alert+"unsupport operator for object(%s,%s): %d", left.Inspect(),
 			right.Inspect(), op)
 	}
-	return vm.replace(nativeBoolToBool(res))
+	return boolObj(res), nil
 }
 
-func (vm *VM) compareStringObj(op code.Opcode, left, right object.Object) error {
-	var leftVal = string(left.(object.String).Value)
-	var rightVal = string(right.(object.String).Value)
+func resolveStringCompare(op code.Opcode, left, right object.String) (object.Object, error) {
+	var leftVal = string(left.Value)
+	var rightVal = string(right.Value)
 	var res bool
 	switch op {
 	case code.OpEqual:
@@ -549,9 +658,9 @@ func (vm *VM) compareStringObj(op code.Opcode, left, right object.Object) error 
 	case code.OpLTEq:
 		res = leftVal <= rightVal
 	default:
-		return fmt.Errorf(format.Alert+"unsupport operator for StringObj: %d", op)
+		return nil, fmt.Errorf(format.Alert+"unsupport operator for StringObj: %d", op)
 	}
-	return vm.replace(nativeBoolToBool(res))
+	return boolObj(res), nil
 }
 
 // compareNumObj 已合并进 compareBinOp：数值比较不再需要为每个对象做类型分支。
@@ -576,7 +685,11 @@ func objToNativeBool(obj object.Object) bool {
 	}
 }
 
-func (vm *VM) executeBinOpInt(op code.Opcode, leftVal, rightVal int) error {
+// resolveIntBinOp 是"整数 op 整数"的语义实现。
+//
+// 注意这些细节必须与原来的 in-place 版本一致（外层有 36 个交叉验证用例）：
+// OpDiv 即使两边都是整数也返回浮点；OpMod 返回整数；OpPow 总返回浮点。
+func resolveIntBinOp(op code.Opcode, leftVal, rightVal int) (object.Object, error) {
 	var res int
 	var fRes float64
 	switch op {
@@ -590,26 +703,26 @@ func (vm *VM) executeBinOpInt(op code.Opcode, leftVal, rightVal int) error {
 		if rightVal != 0 {
 			fRes = float64(leftVal) / float64(rightVal)
 		} else {
-			return DivZeroErr
+			return nil, DivZeroErr
 		}
-		return vm.replace(object.Float{Value: fRes})
+		return object.Float{Value: fRes}, nil
 	case code.OpMod:
 		if rightVal == 0 {
-			return DivZeroErr
+			return nil, DivZeroErr
 		}
 		res = leftVal % rightVal
 	case code.OpPow:
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
-		return vm.replace(object.Float{Value: fRes})
+		return object.Float{Value: fRes}, nil
 	default:
-		return fmt.Errorf(format.Alert+"unknown integer operator: %d", op)
+		return nil, fmt.Errorf(format.Alert+"unknown integer operator: %d", op)
 	}
-	return vm.replace(intObj(res))
+	return intObj(res), nil
 }
 
 var DivZeroErr = fmt.Errorf(format.Alert + "division by zero")
 
-func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error {
+func resolveFloatBinOp(op code.Opcode, left, right object.Object) (object.Object, error) {
 	var leftVal float64
 	var rightVal float64
 	switch left.(type) {
@@ -636,27 +749,25 @@ func (vm *VM) executeBinOpFloat(op code.Opcode, left, right object.Object) error
 		if rightVal != 0 {
 			res = leftVal / rightVal
 		} else {
-			return DivZeroErr
+			return nil, DivZeroErr
 		}
 	case code.OpMod:
 		res = math.Mod(leftVal, rightVal)
 	case code.OpPow:
 		res = math.Pow(leftVal, rightVal)
 	default:
-		return fmt.Errorf(format.Alert+"unknown operator %d for integer", op)
+		return nil, fmt.Errorf(format.Alert+"unknown operator %d for integer", op)
 	}
-	return vm.replace(object.Float{Value: res})
+	return object.Float{Value: res}, nil
 }
 
-func (vm *VM) executeBinOpStr(op code.Opcode, left, right object.Object) error {
-	var leftVal, rightVal string
-	leftVal = left.Inspect()
-	rightVal = right.Inspect()
+func resolveStrBinOp(op code.Opcode, left, right object.Object) (object.Object, error) {
+	leftVal := left.Inspect()
+	rightVal := right.Inspect()
 	if op == code.OpAdd {
-		return vm.replace(object.String{Value: []rune(leftVal + rightVal)})
-	} else {
-		return fmt.Errorf(format.Alert+"unknown operator %d for str", op)
+		return object.String{Value: []rune(leftVal + rightVal)}, nil
 	}
+	return nil, fmt.Errorf(format.Alert+"unknown operator %d for str", op)
 }
 
 func (vm *VM) executePrefix(op code.Opcode) error {
@@ -1000,6 +1111,45 @@ func (vm *VM) allocLocals(n int) []object.Object {
 	}
 	vm.localsTop = end
 	return vars
+}
+
+// fusedOperand 按"来源类型"取出融合指令的操作数。
+// 语义必须与 OpGetLocal / OpGetGlobal / OpConstant 完全一致。
+func (vm *VM) fusedOperand(kind byte, idx uint16, frame *Frame) object.Object {
+	switch kind {
+	case code.OperandLocal:
+		vars := frame.vars
+		if int(idx) < len(vars) && vars[idx] != nil {
+			return vars[idx]
+		}
+		return NullObj
+	case code.OperandGlobal:
+		return vm.globalAt(idx)
+	default:
+		return vm.constants[idx]
+	}
+}
+
+// returnTop 弹出栈顶值并从当前帧返回。
+// OpReturnVal / OpReturnOperand / OpBinReturn 共用这一段，保证三者语义一致。
+func (vm *VM) returnTop() error {
+	returnVal := vm.pop()
+	if vm.frameIdx <= 1 {
+		return fmt.Errorf(format.Alert + "return outside of a function")
+	}
+
+	ret := vm.popFrame()
+	vm.sp = ret.basePoint - 1
+	if vm.sp < 0 {
+		vm.sp = 0
+	}
+	// 回收这个帧的局部槽位：整段直接还给槽位区，无需逐个清理
+	if ret.localsBase >= 0 && ret.localsBase <= vm.localsTop {
+		vm.localsTop = ret.localsBase
+	}
+
+	vm.put(returnVal)
+	return nil
 }
 
 // pushFrame 在帧栈顶原地构造一个新帧并返回它的指针。

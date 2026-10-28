@@ -62,6 +62,12 @@ func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 // maxLocals 与 VM 里 2 字节槽位操作数的上限一致。
 const maxLocals = 1 << 16
 
+// FusionEnabled 控制是否启用超指令融合（默认开启）。
+//
+// 关掉它可以让同一份字节码走"不融合"的路径，用于对比收益或定位问题；
+// 融合只是减少解释器派发次数，语义与行号都不变。
+var FusionEnabled = true
+
 // optimizeFunction 优化单个函数。prevLocals 是未优化时的槽位数，
 // 放弃优化时必须原样返回，否则 VM 会给帧分配过少的槽位。
 func optimizeFunction(name string, params int, ins code.Instructions, lines []code.LineEntry,
@@ -89,10 +95,19 @@ func optimizeFunction(name string, params int, ins code.Instructions, lines []co
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	// 最后一轮清理：去掉"跳到紧邻下一块"的冗余跳转、删除不可达块
+	// 最后一轮清理：去掉"跳到紧邻下一块"的冗余跳转、删除不可达块。
+	// 注意必须用 CompactLines：压缩会改变偏移，行号表要一起重映射，
+	// 否则运行时报错会指到错误的源码行。
 	if g, gerr := cfg.Build(outIns); gerr == nil {
-		if compacted, cerr := g.Compact(outIns); cerr == nil {
-			outIns = compacted
+		if compacted, compactedLines, cerr := g.CompactLines(outIns, outLines); cerr == nil {
+			outIns, outLines = compacted, compactedLines
+		}
+	}
+	// 超指令融合：把常见的相邻指令合并成一条，减少解释器的派发次数。
+	// 融合只减少派发，语义与行号都保持不变；失败时保留未融合的指令流。
+	if FusionEnabled {
+		if fused, fusedLines, ferr := code.Fuse(outIns, outLines); ferr == nil {
+			outIns, outLines = fused, fusedLines
 		}
 	}
 	if locals > maxLocals {

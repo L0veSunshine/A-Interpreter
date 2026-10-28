@@ -52,6 +52,11 @@ var Definitions = map[Opcode]Definition{
 	OpCallMethod:   {"OpCallMethod", []int{1}},
 	OpLoadMethod:   {"OpLoadMethod", []int{2}},
 	OpClosure:      {"OpClosure", []int{1}},
+
+	// 融合指令：[kindAB][binOp][idxA][idxB] / [kind][idx] / [binOp]
+	OpBinFused:      {"OpBinFused", []int{1, 1, 2, 2}},
+	OpReturnOperand: {"OpReturnOperand", []int{1, 2}},
+	OpBinReturn:     {"OpBinReturn", []int{1}},
 }
 
 func Make(op Opcode, operand ...int) []byte {

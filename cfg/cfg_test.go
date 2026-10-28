@@ -6,6 +6,7 @@ import (
 	// 而 compiler 现在依赖 ir，ir 又依赖 cfg，放在包内会形成导入环。
 	"Interpreter/bytecode"
 	. "Interpreter/cfg"
+	"Interpreter/code"
 	"Interpreter/compiler"
 	"Interpreter/lexer"
 	"Interpreter/object"
@@ -257,5 +258,37 @@ t`,
 		if len(opt.Instruction) > len(b.Instruction) {
 			t.Fatalf("prog %d grew: %d -> %d", i, len(b.Instruction), len(opt.Instruction))
 		}
+	}
+}
+
+// Compact 会移动指令偏移，行号表必须跟着走；否则运行时报错会指到错误的行。
+func TestCompactLinesRemapsOffsets(t *testing.T) {
+	// 构造一段"跳到紧邻下一块"的代码，Compact 会删掉那条跳转
+	ins := code.Instructions{}
+	ins = append(ins, code.Make(code.OpConstant, 0)...) // 0
+	ins = append(ins, code.Make(code.OpJump, 6)...)     // 3 -> 6（紧邻下一块，会被删）
+	ins = append(ins, code.Make(code.OpPop)...)         // 6
+	lines := []code.LineEntry{
+		{Offset: 0, Line: 1},
+		{Offset: 3, Line: 2},
+		{Offset: 6, Line: 3},
+	}
+	g, err := Build(ins)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	out, outLines, err := g.CompactLines(ins, lines)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len(out) >= len(ins) {
+		t.Fatalf("expected the redundant jump to be dropped: %d -> %d", len(ins), len(out))
+	}
+	lastOff := len(out) - 1
+	if got := code.LineAt(outLines, lastOff); got != 3 {
+		t.Fatalf("line at %d = %d, want 3 (lines: %v)", lastOff, got, outLines)
+	}
+	if got := code.LineAt(outLines, 0); got != 1 {
+		t.Fatalf("line at 0 = %d, want 1", got)
 	}
 }

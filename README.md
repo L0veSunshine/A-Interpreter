@@ -15,6 +15,7 @@
 | `vm` | 栈式虚拟机。栈与帧按需增长，运行时错误统一带函数名与行号 |
 | `cfg` | 基本块划分、可达性、`Compact`（删死块/冗余跳转）、支配树与支配边界 |
 | `ir` | 三地址码 IR、SSA 构造、优化、降级回字节码 |
+| `cmd/xlang` | 极简命令行：`go run ./cmd/xlang 文件` 直接执行一个源码文件 |
 
 ## 编译管线
 
@@ -69,15 +70,58 @@ c.SetOptimize(false)
 | 数组字面量 | `make` + `copy` 取代 append 循环 | 避免多次扩容 |
 | 调用路径 | 帧在帧栈里原地构造（`pushFrame` 返回指针），`CompiledFunc` 传指针 | `CompiledFunc` 约 104 字节、`Frame` 约 120 字节，原来每次调用要拷 6 次 |
 | 栈操作 | 每条指令前统一检查一次栈容量，热路径用无检查的 `put` | 一条指令最多压一个值，省掉每次 push 的函数调用与边界检查 |
+| **超指令融合** | 把 `GetLocal/GetGlobal/Constant + … + 二元运算` 等固定搭配合并成一条指令 | 减少派发次数（详见下节） |
+
+### 超指令（superinstruction）
+
+解释器每条指令都要付一次派发成本（读 opcode、跳转表间接跳转、读操作数、
+调整栈指针）。`a < 10` 在栈式字节码里是三条指令、三次派发，而它只做一次比较。
+
+`code.Fuse` 在 IR 降级之后做一遍模式融合（[code/fuse.go](code/fuse.go)），
+把下面三类固定搭配合并成一条：
+
+| 原序列 | 融合后 | 长度 | 派发 |
+| --- | --- | --- | --- |
+| `OpGetLocal/OpGetGlobal/OpConstant` + 同左 + 算术/比较 | `OpBinFused` | 7 → 7 字节 | 3 → **1** |
+| `OpGetLocal/OpGetGlobal/OpConstant` + `OpReturnVal` | `OpReturnOperand` | 4 → 4 字节 | 2 → **1** |
+| 算术/比较 + `OpReturnVal` | `OpBinReturn` | 2 → 2 字节 | 2 → **1** |
+
+`OpBinFused` 用 `[kindAB][binOp][idxA][idxB]` 编码，`kindA`/`kindB` 表示操作数
+来自局部变量 / 常量 / 全局变量，所以 3×3 种组合只需要一条指令，
+不会让跳转表的目标数膨胀（那会伤害分支预测）。
+
+安全约束（缺一不可，全部有 UT 覆盖）：
+
+1. 被合并的序列里，**除第一条外不能是跳转目标** —— 否则跳到中间会错位；
+2. 被合并的指令必须来自**同一源码行** —— 否则运行时错误报的行号会变；
+3. 所有跳转目标都要**重新映射**到新偏移，行号表同理；
+4. 只减少派发，不改变求值顺序、错误信息与行号：融合指令内部调用的是
+   与 `OpBin` 完全相同的那份语义实现。
+
+任何可疑情况（未知操作码、跳转目标越界、无法映射）都放弃该处融合；
+`Fuse` 出错时原样返回入参，调用方保留未融合的指令流即可，正确性不受影响。
+`ir.FusionEnabled = false` 可以关掉整个融合（基准对比与排障用）。
+
+实测（fib(30)，同一台机器）：
+
+```
+融合开   145 ms
+融合关   180 ms      → 融合本身 -19%
+```
+
+fib 函数从 12 条指令降到 7 条（3 个 `OpBinFused` + 1 个 `OpReturnOperand` + 1 个 `OpBinReturn`）。
+
+（顺带修了一个旧问题：`cfg.Compact` 改变指令偏移后没有重映射行号表，
+会导致优化后的程序报错行号漂移。现在由 `CompactLines` 一并处理，并有 UT 防护。）
 
 实测（1000 次迭代的整数循环 / fib(18) / 数组下标 / 深递归 300 层）：
 
 ```
-                    第一轮后        第二轮后
-LoopArith           123771 ns/op    99680 ns/op   (初始 139558, -29%)
-FibRecursive        911324 ns/op   539000 ns/op   (初始 1099901, -51%)
-ArrayIndex           25980 ns/op    27960 ns/op   (初始 31590)
-DeepRecursion        30137 ns/op    26740 ns/op   (初始 35154)
+                    第一轮后        第二轮后        融合后
+LoopArith           123771 ns/op    99680 ns/op    73700 ns/op
+FibRecursive        911324 ns/op   539000 ns/op   475000 ns/op
+ArrayIndex           25980 ns/op    27960 ns/op    18300 ns/op
+DeepRecursion        30137 ns/op    26740 ns/op    21400 ns/op
 
 allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
 ```
@@ -88,7 +132,7 @@ allocs/op: 3589→1912 / 8377→5 / 151→6 / 207→7
 
 | 实现 | 端到端（含启动，5 次最好） | 进程内纯计算 | 每次调用 |
 | --- | --- | --- | --- |
-| xlang（本项目，字节码解释器） | 0.194 s | ~175 ms | ~65 ns |
+| xlang（本项目，字节码解释器） | 0.194 s | ~145 ms | ~54 ns |
 | CPython 3.14.2 | 0.122 s | ~95 ms | ~35 ns |
 | Node 24.21（V8 JIT） | 0.084 s | ~6.7 ms | ~2.5 ns |
 | Rust 1.99 `-O`（原生） | 0.009 s | ~1.6 ms | ~0.6 ns |
@@ -100,11 +144,11 @@ CPython 3.11+ 有专用化指令（`BINARY_OP_ADD_INT`、`LOAD_FAST_BORROW`）�
 
 ## 还没做的优化
 
-按收益排序：**超指令/快速化**（把 `GetLocal+GetLocal+Add` 合成一条，
-对应 CPython 3.12 的专用指令，需要新增操作码并贯穿 code/compiler/ir/反汇编）、
-**tagged value / NaN-boxing**（彻底去掉 `object.Object` 接口装箱，
-是追上 CPython 的关键一步）、直接线索化派发（Go 没有 computed goto，
-只能用函数表，实际未必比现在这个密集 switch 快，需要实测）。
+按收益排序：**tagged value / NaN-boxing**（彻底去掉 `object.Object` 接口装箱，
+这是继续逼近 CPython 的关键一步；实测浮点每次运算都会堆分配）、
+**编译期 max_stack**（去掉每指令一次的栈容量检查，实测约 -6%）。
+直接线索化派发在 Go 里不可行（没有 computed goto，而密集 switch 本来就会编译成跳转表），
+函数指针表实测比现在的 switch 慢 23%，不要做。
 
 ## 语义要点
 
@@ -127,3 +171,10 @@ go test -race ./...     # 竞态
 
 `ir_internal_test.go` 覆盖内部结构：栈提升、放弃条件的触发、phi 插入位置、
 同时活跃值的槽位互斥、DCE 保留可能报错的指令、常量折叠拒绝折叠会报错的运算。
+
+超指令融合有两层防护：
+
+- `code/fuse_test.go`：模式匹配、跳转目标重映射、拒绝跨行/跨跳转目标融合、
+  幂等性、代码量不增长、未知操作码原样返回；
+- `ir/fuse_test.go`：融合开/关的**逐字等价**（含错误信息与行号）、
+  融合确实触发、指令条数下降、融合后字节码仍能通过 CFG 校验、不泄漏操作数栈。

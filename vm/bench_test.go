@@ -5,6 +5,7 @@ import (
 
 	"Interpreter/bytecode"
 	"Interpreter/compiler"
+	"Interpreter/ir"
 	"Interpreter/lexer"
 	"Interpreter/parser"
 	"Interpreter/vm"
@@ -122,17 +123,38 @@ down(200)`)
 	}
 }
 
-// fib(30) 是解释器圈子的"通用标尺"：约 269 万次函数调用，纯调用 + 分支 + 加法。
-// 便于和其他语言对比（CPython/Node/Rust 用同样的朴素递归）。
-func BenchmarkFib30(b *testing.B) {
-	bc := compile(b, `
+// fibFib30Src 是 fib(30) 的源码，供融合开/关的对比基准共用。
+const fibFib30Src = `
 def fib(n){
 	if(n<2){
 		return n
 	}
 	return fib(n-1)+fib(n-2)
 }
-fib(30)`)
+fib(30)`
+
+// fib(30) 是解释器圈子的"通用标尺"：约 269 万次函数调用，纯调用 + 分支 + 加法。
+// 便于和其他语言对比（CPython/Node/Rust 用同样的朴素递归）。
+func BenchmarkFib30(b *testing.B) {
+	bc := compile(b, fibFib30Src)
+	if got := runOnce(b, bc); got != "832040" {
+		b.Fatalf("unexpected result: %s", got)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m := vm.NewVM()
+		if err := m.Run(bc); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkFib30NoFusion 与 BenchmarkFib30 唯一的差别是关掉超指令融合，
+// 用来量化"融合"这一项本身的收益。
+func BenchmarkFib30NoFusion(b *testing.B) {
+	ir.FusionEnabled = false
+	bc := compile(b, fibFib30Src)
+	ir.FusionEnabled = true
 	if got := runOnce(b, bc); got != "832040" {
 		b.Fatalf("unexpected result: %s", got)
 	}

@@ -91,8 +91,56 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 		if name, ok := base.FindGlobalByIdx(idx); ok {
 			args = name
 		}
+	case "OpBinFused":
+		return b.fusedBinArgs(operand, scope)
+	case "OpReturnOperand":
+		return "return " + b.operandName(byte(operand[0]), operand[1], scope)
+	case "OpBinReturn":
+		return "return " + opName(code.Opcode(operand[0]))
 	}
 	return args
+}
+
+// opName 返回操作码的可读名字；未定义时退化成数字。
+func opName(op code.Opcode) string {
+	if def, ok := code.Definitions[op]; ok {
+		return def.Name
+	}
+	return "opcode[" + strconv.Itoa(int(op)) + "]"
+}
+
+// operandName 把"来源 + 下标"渲染成可读形式，便于看反汇编。
+func (b *Bytecode) operandName(kind byte, idx int, scope *parser.SymTable) string {
+	switch kind {
+	case code.OperandLocal:
+		if name, ok := scope.FindLocalByIdx(idx); ok {
+			return name
+		}
+		return "local[" + strconv.Itoa(idx) + "]"
+	case code.OperandGlobal:
+		base := parser.Search("Base", b.Symbols)
+		if name, ok := base.FindGlobalByIdx(idx); ok {
+			return name
+		}
+		return "global[" + strconv.Itoa(idx) + "]"
+	default:
+		if idx < len(b.Constants) {
+			obj := b.Constants[idx]
+			return string(obj.Type()) + "(" + obj.Inspect() + ")"
+		}
+		return "const[" + strconv.Itoa(idx) + "]"
+	}
+}
+
+// fusedBinArgs 把 OpBinFused 渲染成「左边 运算符 右边」。
+func (b *Bytecode) fusedBinArgs(operand []int, scope *parser.SymTable) string {
+	if len(operand) != 4 {
+		return ""
+	}
+	kindAB := byte(operand[0])
+	subOp := code.Opcode(operand[1])
+	return b.operandName(kindAB>>4, operand[2], scope) + " " +
+		opName(subOp) + " " + b.operandName(kindAB&0x0f, operand[3], scope)
 }
 
 func (b *Bytecode) decodeFunc() string {
