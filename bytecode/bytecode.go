@@ -82,7 +82,12 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 	case "OpLoadMethod":
 		name := scope.Methods.FindName(idx)
 		args += "(" + strconv.Quote(name) + ")"
-	case "OpClosure":
+	case "OpCallMethod":
+		if len(operand) != 2 {
+			return ""
+		}
+		return "." + scope.Methods.FindName(operand[0]) + "(" + strconv.Itoa(operand[1]) + " args)"
+	case "OpClosure", "OpCaptureClosure":
 		fn := b.Constants[idx].(object.CompiledFunc)
 		var argSb strings.Builder
 		argSb.WriteString("Get Func <" + fn.FnName + ">")
@@ -97,6 +102,10 @@ func (b *Bytecode) getArgs(def code.Definition, operand []int, scope *parser.Sym
 		}
 	case "OpBinFused":
 		return b.fusedBinArgs(operand, scope)
+	case "OpIndexBinFused":
+		return "[" + b.fusedBinArgs(operand, scope) + "]"
+	case "OpUpdateBinFused":
+		return "[" + b.fusedBinArgs(operand, scope) + "] = <value>"
 	case "OpReturnOperand":
 		return "return " + b.operandName(byte(operand[0]), operand[1], scope)
 	case "OpBinReturn":

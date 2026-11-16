@@ -149,18 +149,21 @@ func stackDelta(op Opcode, operands []int) (int, error) {
 	switch op {
 	// 压入一个值
 	case OpConstant, OpTrue, OpFalse, OpNull, OpGetLocal, OpGetGlobal,
-		OpGetBuiltin, OpClosure, OpLoadMethod, OpBinFused:
+		OpGetBuiltin, OpClosure, OpCaptureClosure, OpGetFree, OpBinFused:
 		return 1, nil
 
 	// 弹出且不压
-	case OpPop, OpPrintTop, OpSetLocal, OpSetGlobal, OpReturnVal:
+	case OpPop, OpPrintTop, OpSetLocal, OpSetGlobal, OpSetFree, OpReturnVal:
 		return -1, nil
 
-	// 二元/一元运算：弹出操作数、压入一个结果
-	case OpAdd, OpSub, OpMul, OpDiv, OpMod, OpPow,
-		OpGT, OpGTEq, OpLT, OpLTEq, OpEqual, OpNotEQ,
-		OpNot, OpMinus, OpPlus:
+	// 二元运算：弹出两个操作数、压入一个结果
+	case OpAdd, OpSub, OpMul, OpDiv, OpMod, OpFloorDiv, OpPow,
+		OpGT, OpGTEq, OpLT, OpLTEq, OpEqual, OpNotEQ:
 		return -1, nil
+
+	// 一元运算：弹出栈顶再压回结果，净效应为 0
+	case OpNot, OpMinus, OpPlus:
+		return 0, nil
 
 	// 只在栈顶就地写入，不改变深度
 	case OpUpdateLocal, OpUpdateGlobal, OpJump:
@@ -198,11 +201,17 @@ func stackDelta(op Opcode, operands []int) (int, error) {
 	case OpCmpBranch:
 		return 0, nil
 
-	// 弹出 self + method + n 个实参，压回 self 与返回值。
-	// 方法可能只返回一个值，那种情况下实际深度更低，
-	// 所以按"压回 2 个"计算得到的是安全的上界。
+	// 下标融合：弹出下标（不入栈），容器原地替换为元素，净 0
+	case OpIndexBinFused:
+		return 0, nil
+	// 下标融合写入：弹出值与容器，压回容器，净 -1
+	case OpUpdateBinFused:
+		return -1, nil
+
+	// 弹出 self + n 个实参，压回返回值与 self（净 1-n）。
+	// 操作数是 [methodIdx][argc]，实参个数在第二个操作数。
 	case OpCallMethod:
-		return -operands[0], nil
+		return 1 - operands[1], nil
 
 	// 终结指令：OpReturnOperand 会先把操作数压栈（峰值 +1）再返回，
 	// OpBinReturn 先弹两个压一个再返回（峰值不增加）。

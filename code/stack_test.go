@@ -2,6 +2,18 @@ package code
 
 import "testing"
 
+func TestMaxStackClosureInstructions(t *testing.T) {
+	prog := ins(
+		op(OpCaptureClosure, 0),
+		op(OpSetFree, 0),
+		op(OpGetFree, 0),
+		op(OpReturnVal),
+	)
+	if got, err := MaxStack(prog); err != nil || got != 1 {
+		t.Fatalf("closure stack effects: got (%d, %v), want (1, nil)", got, err)
+	}
+}
+
 func TestMaxStackStraightLine(t *testing.T) {
 	// 0: OpConstant 0   +1 -> 1
 	// 3: OpConstant 1   +1 -> 2  (峰值 2)
@@ -125,6 +137,41 @@ func TestMaxStackRejectsUnknownOpcode(t *testing.T) {
 	}
 }
 
+// 一元运算（-x / +x / not x）是"弹出栈顶再压回结果"，净效应为 0。
+// 曾经按二元运算算成 -1，导致任何含负号字面量的函数都被迫退回
+// "指令条数"这个保守上界（two_sum 的 maxstack 从真实值 4 变成 112）。
+func TestMaxStackUnaryOpsKeepDepth(t *testing.T) {
+	cases := map[string][]byte{
+		"minus": ins(op(OpConstant, 0), op(OpMinus), op(OpPop)),
+		"plus":  ins(op(OpConstant, 0), op(OpPlus), op(OpPop)),
+		"not":   ins(op(OpTrue), op(OpNot), op(OpPop)),
+	}
+	for name, prog := range cases {
+		got, err := MaxStack(prog)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got != 1 {
+			t.Fatalf("%s: max stack = %d, want 1", name, got)
+		}
+	}
+
+	// 数组字面量里放负数：[-1, -1] 的峰值是 2（两个值同时在场）
+	arr := ins(
+		op(OpConstant, 0), op(OpMinus),
+		op(OpConstant, 0), op(OpMinus),
+		op(OpBuildArray, 2),
+		op(OpPop),
+	)
+	got, err := MaxStack(arr)
+	if err != nil {
+		t.Fatalf("neg literal array: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("neg literal array: max stack = %d, want 2", got)
+	}
+}
+
 // 保守兜底永远成立：无法分析时用指令条数作为上界。
 func TestConservativeMaxStackFallback(t *testing.T) {
 	prog := ins(op(OpNull), []byte{0xfd}, op(OpPop))
@@ -149,15 +196,30 @@ func TestConservativeMaxStackExactWhenAnalyzable(t *testing.T) {
 	}
 }
 
-// 方法调用的栈效应不定（可能只返回一个值），按"压回两个"取上界仍是安全的，
-// 因此必须能分析而不是报错。
+// 方法调用的栈效应：弹出 self + argc 个实参，压回返回值与 self。
 func TestMaxStackHandlesCallMethod(t *testing.T) {
 	prog := ins(
-		op(OpGetLocal, 0),   // +1
-		op(OpLoadMethod, 1), // +1 -> 2
-		op(OpCallMethod, 0), // -0 -> 2（弹出 self+method，压回 self+ret）
-		op(OpPop),           // -1 -> 1
-		op(OpReturnVal),     // 终结
+		op(OpGetLocal, 0),      // +1
+		op(OpConstant, 1),      // +1 -> 2（实参）
+		op(OpCallMethod, 0, 1), // 弹 self+1 个实参，压回 2 个 -> 2
+		op(OpPop),              // -1 -> 1
+		op(OpReturnVal),        // 终结
+	)
+	got, err := MaxStack(prog)
+	if err != nil {
+		t.Fatalf("MaxStack: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("max stack = %d, want 2", got)
+	}
+}
+
+// 零实参的方法调用净 +1（弹出 self，压回 返回值 + self）。
+func TestMaxStackHandlesZeroArgCallMethod(t *testing.T) {
+	prog := ins(
+		op(OpGetLocal, 0),      // +1
+		op(OpCallMethod, 0, 0), // +1 -> 2
+		op(OpReturnVal),        // 终结
 	)
 	got, err := MaxStack(prog)
 	if err != nil {

@@ -1,0 +1,2 @@
+﻿# 字节码缓存（xlang -write-cache）
+*.xlc

@@ -1,0 +1,33 @@
+# LeetCode 52: N-Queens II —— 回溯 + 递归，衡量数组访问与调用开销。
+def nqueens(n, row, cols, diag1, diag2){
+	if(row == n){
+		return 1
+	}
+	var total = 0
+	for(var c = 0; c < n; c += 1){
+		if(cols[c] == 0 and diag1[row + c] == 0 and diag2[row - c + n] == 0){
+			cols[c] = 1
+			diag1[row + c] = 1
+			diag2[row - c + n] = 1
+			total += nqueens(n, row + 1, cols, diag1, diag2)
+			cols[c] = 0
+			diag1[row + c] = 0
+			diag2[row - c + n] = 0
+		}
+	}
+	return total
+}
+
+var n = 11
+var cols = []
+var diag1 = []
+var diag2 = []
+for(var i = 0; i < 2 * n + 1; i += 1){
+	diag1.append(0)
+	diag2.append(0)
+	if(i < n){
+		cols.append(0)
+	}
+}
+
+nqueens(n, 0, cols, diag1, diag2)

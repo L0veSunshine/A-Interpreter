@@ -114,6 +114,14 @@ func (c *fuseContext) tryFuse(i int) (fusion, bool) {
 	if f, ok := c.fuseCmpBranch(i); ok {
 		return f, true
 	}
+	// 下标由算术运算产生：必须先于 "操作数 + 操作数 + 二元运算" 尝试，
+	// 否则短模式会吞掉算术，留下孤立的 OpIndex / OpUpdate。
+	if f, ok := c.fuseKeyedBin(i, OpIndexBinFused, OpIndex); ok {
+		return f, true
+	}
+	if f, ok := c.fuseKeyedBin(i, OpUpdateBinFused, OpUpdate); ok {
+		return f, true
+	}
 	// 操作数 + 操作数 + 二元运算
 	if f, ok := c.fuseOperandOperandBin(i); ok {
 		return f, true
@@ -171,6 +179,47 @@ func (c *fuseContext) fuseCmpBranch(i int) (fusion, bool) {
 		consumed:    4,
 		patchOff:    7, // opcode(1) + kindAB(1) + cmpOp(1) + idxA(2) + idxB(2)
 		patchTarget: c.insts[i+3].operands[0],
+	}, true
+}
+
+// fuseKeyedBin 匹配 "操作数 A + 操作数 B + 算术运算 + tail"，tail 是 OpIndex 或 OpUpdate。
+//
+// 下标表达式（如 `dp[base + j]`）在原序列里要先把中间结果装箱压栈再弹出；
+// 融合后中间结果直接以原生整数参与下标计算。
+//
+//	原序列 3+3+1+1 = 8 字节、4 次派发
+//	融合后 1+1+1+2+2 = 7 字节、1 次派发
+func (c *fuseContext) fuseKeyedBin(i int, fused, tail Opcode) (fusion, bool) {
+	if i+3 >= len(c.insts) {
+		return fusion{}, false
+	}
+	for k := 0; k < 3; k++ {
+		if !c.contiguous(i + k) {
+			return fusion{}, false
+		}
+	}
+	kindA, okA := operandKind(c.insts[i].op)
+	kindB, okB := operandKind(c.insts[i+1].op)
+	if !okA || !okB {
+		return fusion{}, false
+	}
+	if !IsArithOp(c.insts[i+2].op) || c.insts[i+3].op != tail {
+		return fusion{}, false
+	}
+	for k := 1; k <= 3; k++ {
+		if !c.reusable(i, i+k) {
+			return fusion{}, false
+		}
+	}
+	return fusion{
+		blob: Make(fused,
+			int(kindA<<4|kindB),
+			int(c.insts[i+2].op),
+			c.insts[i].operands[0],
+			c.insts[i+1].operands[0],
+		),
+		consumed: 4,
+		patchOff: -1,
 	}, true
 }
 

@@ -1,0 +1,28 @@
+# 矩阵乘法 —— 衡量密集数组下标读取（i*n+j 的乘法与边界检查）。
+var n = 90
+
+var a = []
+var b = []
+var c = []
+for(var i = 0; i < n * n; i += 1){
+	a.append((i * 7 + 3) % 13)
+	b.append((i * 11 + 5) % 17)
+	c.append(0)
+}
+
+for(var i = 0; i < n; i += 1){
+	var row = i * n
+	for(var j = 0; j < n; j += 1){
+		var sum = 0
+		for(var k = 0; k < n; k += 1){
+			sum += a[row + k] * b[k * n + j]
+		}
+		c[row + j] = sum
+	}
+}
+
+var checksum = 0
+for(var i = 0; i < n * n; i += 1){
+	checksum += c[i]
+}
+checksum

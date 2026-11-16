@@ -57,6 +57,12 @@ const (
 	OpMakeClosure
 	// OpCall 调用 Args[0]，其余为实参。
 	OpCall
+	// OpMethodCall 调用 Args[0] 上的内建方法：Imm 是方法名下标，
+	// Args[0] 是接收者，Args[1:] 是实参；Dst 是方法返回值，Dst2 是更新后的接收者。
+	// 方法可能有副作用（append/反转），因此不可被 DCE 删除。
+	OpMethodCall
+	// OpMakeSlice 由 Args[0:3]（start/end/step）构造切片对象。
+	OpMakeSlice
 	// OpLoadGlobal 读取全局槽位 Imm（调用可能改写全局，故不做 SSA）。
 	OpLoadGlobal
 	// OpStoreGlobal 把 Args[0] 写入全局槽位 Imm。
@@ -105,6 +111,10 @@ func (o Op) String() string {
 		return "closure"
 	case OpCall:
 		return "call"
+	case OpMethodCall:
+		return "call.method"
+	case OpMakeSlice:
+		return "slice"
 	case OpLoadGlobal:
 		return "load.global"
 	case OpStoreGlobal:
@@ -129,8 +139,10 @@ func (o Op) String() string {
 
 // Instr 是一条三地址指令。
 type Instr struct {
-	Op   Op
-	Dst  ValueID
+	Op  Op
+	Dst ValueID
+	// Dst2 是 OpMethodCall 的第二个结果（更新后的接收者）。
+	Dst2 ValueID
 	Args []ValueID
 	// Imm 的含义随 Op 变化：常量下标 / 槽位 / 内建下标 / 二元运算码 /
 	// 跳转目标块 ID。
@@ -253,12 +265,15 @@ func (f *Function) NewValue() ValueID {
 
 // Emit 追加一条指令；Dst 非 0 时登记为它的定义点。
 func (f *Function) Emit(b *Block, in *Instr) *Instr {
-	if in.Dst != NoValue {
-		for int(in.Dst) >= len(f.defs) {
+	for _, dst := range []ValueID{in.Dst, in.Dst2} {
+		if dst == NoValue {
+			continue
+		}
+		for int(dst) >= len(f.defs) {
 			f.defs = append(f.defs, nil)
 			f.types = append(f.types, typeUnknown)
 		}
-		f.defs[in.Dst] = in
+		f.defs[dst] = in
 	}
 	b.Instrs = append(b.Instrs, in)
 	return in

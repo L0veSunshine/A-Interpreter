@@ -1,0 +1,24 @@
+# Project Euler 14: 最长 Collatz 链 —— 纯整数标量循环，衡量分支与取模/整除。
+def chain_len(n){
+	var steps = 1
+	for(; n != 1; ){
+		if(n % 2 == 0){
+			n = n // 2
+		}else{
+			n = 3 * n + 1
+		}
+		steps += 1
+	}
+	return steps
+}
+
+var best = 0
+var best_n = 0
+for(var i = 1; i < 50000; i += 1){
+	var s = chain_len(i)
+	if(s > best){
+		best = s
+		best_n = i
+	}
+}
+[best_n, best]

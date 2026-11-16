@@ -182,11 +182,13 @@ func (i IfExpression) TokenLiteral() string {
 func (i IfExpression) Str() string {
 	var sb strings.Builder
 	sb.WriteString("If (")
-	sb.WriteString(str(i.Condition) + ") ")
+	sb.WriteString(str(i.Condition))
+	sb.WriteString(") ")
 	sb.WriteString(i.Consequence.Str())
 	if i.Alternative != nil {
 		sb.WriteString(" Else (")
-		sb.WriteString(i.Alternative.Str() + ") ")
+		sb.WriteString(i.Alternative.Str())
+		sb.WriteString(") ")
 	}
 	return sb.String()
 }
@@ -214,12 +216,14 @@ func (fe ForExpression) Str() string {
 	var sb strings.Builder
 	sb.WriteString("For (")
 	if fe.InitCond != nil {
-		sb.WriteString(fe.InitCond.Str() + ";")
+		sb.WriteString(fe.InitCond.Str())
+		sb.WriteByte(';')
 	} else {
 		sb.WriteString(";")
 	}
 	if fe.Condition != nil {
-		sb.WriteString(str(fe.Condition) + ";")
+		sb.WriteString(str(fe.Condition))
+		sb.WriteByte(';')
 	} else {
 		sb.WriteString(";")
 	}
@@ -256,8 +260,10 @@ func (fd FuncDef) Str() string {
 		params = append(params, p.Str())
 	}
 	sb.WriteString(fmt.Sprintf("Func: %s(", fd.Name))
-	sb.WriteString(strings.Join(params, ",") + ")\n{")
-	sb.WriteString(str(fd.FuncBody) + "}")
+	sb.WriteString(strings.Join(params, ","))
+	sb.WriteString(")\n{")
+	sb.WriteString(str(fd.FuncBody))
+	sb.WriteByte('}')
 	return sb.String()
 }
 
@@ -283,7 +289,9 @@ func (fc FuncCallExpr) Str() string {
 		args = append(args, str(arg))
 	}
 	sb.WriteString(str(fc.Function))
-	sb.WriteString("(" + strings.Join(args, ",") + ")")
+	sb.WriteByte('(')
+	sb.WriteString(strings.Join(args, ","))
+	sb.WriteByte(')')
 	return sb.String()
 }
 
@@ -306,7 +314,8 @@ func (a Array) Str() string {
 	sb.WriteString("[")
 	if len(a.Elements) > 0 {
 		for i := 0; i < len(a.Elements)-1; i++ {
-			sb.WriteString(str(a.Elements[i]) + ",")
+			sb.WriteString(str(a.Elements[i]))
+			sb.WriteByte(',')
 		}
 		sb.WriteString(str(a.Elements[len(a.Elements)-1]))
 		sb.WriteString("]")
@@ -356,7 +365,11 @@ func (is IndexSlice) Str() string {
 	} else {
 		step = ""
 	}
-	sb.WriteString(start + ":" + end + ":" + step)
+	sb.WriteString(start)
+	sb.WriteByte(':')
+	sb.WriteString(end)
+	sb.WriteByte(':')
+	sb.WriteString(step)
 	return sb.String()
 }
 
@@ -382,7 +395,9 @@ func (i IndexExpression) Str() string {
 		sb.WriteString("[]")
 		return sb.String()
 	}
-	sb.WriteString("[" + i.Index.Str() + "]")
+	sb.WriteByte('[')
+	sb.WriteString(i.Index.Str())
+	sb.WriteByte(']')
 	return sb.String()
 }
 
@@ -405,10 +420,12 @@ func (m Map) Str() string {
 	var sb strings.Builder
 	sb.WriteString("{")
 	for i := 0; i < len(m.Keys); i++ {
+		sb.WriteString(str(m.Keys[i]))
+		sb.WriteByte(':')
+		sb.WriteString(str(m.Items[i]))
 		if i == len(m.Keys)-1 {
-			sb.WriteString(str(m.Keys[i]) + ":" + str(m.Items[i]))
 		} else {
-			sb.WriteString(str(m.Keys[i]) + ":" + str(m.Items[i]) + ", ")
+			sb.WriteString(", ")
 		}
 	}
 	sb.WriteString("}")
@@ -442,12 +459,15 @@ func (mc MethodCall) TokenLiteral() string {
 
 func (mc MethodCall) Str() string {
 	var sb strings.Builder
-	sb.WriteString(str(mc.Left) + ".")
+	sb.WriteString(str(mc.Left))
+	sb.WriteByte('.')
 	for i, m := range mc.Methods {
-		sb.WriteString(str(m) + "(")
+		sb.WriteString(str(m))
+		sb.WriteByte('(')
 		for idx, arg := range mc.Arguments[i] {
 			if idx != len(mc.Arguments[i])-1 {
-				sb.WriteString(str(arg) + ",")
+				sb.WriteString(str(arg))
+				sb.WriteByte(',')
 			} else {
 				sb.WriteString(str(arg))
 			}

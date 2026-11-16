@@ -73,6 +73,7 @@ func NewParser(lex *lexer.Lexer) *Parser {
 	p.regInfixFn(tokens.Mul, p.parseInfixExpr)
 	p.regInfixFn(tokens.Div, p.parseInfixExpr)
 	p.regInfixFn(tokens.Mod, p.parseInfixExpr)
+	p.regInfixFn(tokens.FloorDiv, p.parseInfixExpr)
 	p.regInfixFn(tokens.Pow, p.parseInfixExpr)
 	p.regInfixFn(tokens.LT, p.parseInfixExpr)
 	p.regInfixFn(tokens.LTEq, p.parseInfixExpr)
@@ -333,7 +334,7 @@ func (p *Parser) parseStatement() ast.Statement {
 	switch {
 	case p.at(tokens.Assign):
 		return p.parseAssignment(expr)
-	case p.at(tokens.IPlus, tokens.IMinus, tokens.IMul, tokens.IDiv, tokens.IMod, tokens.IPow):
+	case p.at(tokens.IPlus, tokens.IMinus, tokens.IMul, tokens.IDiv, tokens.IMod, tokens.IPow, tokens.IFloorDiv):
 		return p.parseCompoundAssign(expr)
 	}
 	return ast.ExprStatement{Expression: expr}

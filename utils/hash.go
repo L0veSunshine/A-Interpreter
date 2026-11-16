@@ -2,37 +2,37 @@ package utils
 
 import (
 	"Interpreter/object"
-	"fmt"
-	"strconv"
 )
 
 func Time33(str string) int {
-	rs := []rune(str)
 	hash := 5381
-	length := len(rs)
-	for i := 0; i < length; i++ {
-		hash += hash<<5 + int(rs[i])
+	for _, r := range str {
+		hash += hash<<5 + int(r)
+	}
+	return hash & 0x7FFFFFFF
+}
+
+// time33Runes 与 Time33 对同一段文本的结果相同，但直接消费 []rune，避免
+// String -> string -> []rune 两次分配。
+func time33Runes(rs []rune) int {
+	hash := 5381
+	for _, r := range rs {
+		hash += hash<<5 + int(r)
 	}
 	return hash & 0x7FFFFFFF
 }
 
 func Hash(obj object.Object) int {
-	var res int
-	switch obj.Type() {
-	case object.IntObj:
-		iVal, err := strconv.Atoi(obj.Inspect())
-		if err != nil {
-			fmt.Println(err)
-		}
-		res = iVal + 193460240 //time33("IntObj")
-	case object.FloatObj:
-		res = Time33(obj.Inspect()) + 221172091
-	case object.StringObj:
-		res = Time33(obj.Inspect()) + 1374591964
-	case object.BooleanObj:
-		res = Time33(obj.Inspect()) + 1732606053
+	switch o := obj.(type) {
+	case object.Int:
+		return o.Value + 193460240 //time33("IntObj")
+	case object.Float:
+		return Time33(o.Inspect()) + 221172091
+	case object.String:
+		return time33Runes(o.Value) + 1374591964
+	case object.Boolean:
+		return Time33(o.Inspect()) + 1732606053
 	default:
-		res = 0
+		return 0
 	}
-	return res
 }

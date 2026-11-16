@@ -232,13 +232,88 @@ func TestOptimizePreservesBehavior(t *testing.T) {
 	}
 }
 
+func TestOptimizeSupportsMethodCalls(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "append in main",
+			src: `var a=[]
+a.append(1)
+a.append(2)
+var x=a.pop()
+a.append(x)
+len(a)+a[1]`,
+		},
+		{
+			name: "append in hot loop",
+			src: `def collect(n){
+	var a=[]
+	for(var i=0;i<n;i=i+1){
+		a.append(i)
+	}
+	return len(a)
+}
+collect(8)`,
+		},
+		{
+			name: "method call updates global receiver",
+			src: `var a=[]
+def add(){
+	a.append(7)
+}
+add()
+len(a)`,
+		},
+		{
+			name: "method call on expression receiver",
+			src:  `[1].append(2)`,
+		},
+		{
+			name: "method call invalidates indexed reads",
+			src: `var a=[1,2]
+var first=a[0]
+a.reverse()
+first+a[0]`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := compileSrc(t, tc.src)
+			want, wantErr := runBC(base)
+
+			optimized, err := ir.Optimize(base)
+			if err != nil {
+				t.Fatalf("optimizer declined method-call program: %v", err)
+			}
+			got, gotErr := runBC(optimized)
+			if (wantErr == nil) != (gotErr == nil) {
+				t.Fatalf("error behavior changed: base=%v optimized=%v", wantErr, gotErr)
+			}
+			if wantErr != nil {
+				if wantErr.Error() != gotErr.Error() {
+					t.Fatalf("error message changed:\n base=%v\n opt =%v", wantErr, gotErr)
+				}
+				return
+			}
+			if got != want {
+				t.Fatalf("result changed: base=%s optimized=%s", want, got)
+			}
+		})
+	}
+}
+
 // TestOptimizeNeverGrowsCode 守住"优化不会让代码变大"这条底线。
 //
-// 允许每个用例最多增长 3 字节：赋值表达式（如 g=bump()）在栈式字节码里
-// 直接把值留在操作数栈上，而 IR 模型必须"存槽位 + 读回"，正好多一条
-// 3 字节的 load/store。除此之外任何增长都视为回归。
+// 允许每个用例最多增长 32 字节：赋值表达式（如 g=bump()）在栈式字节码里
+// 直接把值留在操作数栈上，而 IR 模型必须"存槽位 + 读回"；另外函数调用的
+// 结果**不能延迟展开**（延迟会让副作用越过中间的写操作，实测会把
+// `total += f()` 挪到数组回填之后），因此每次调用最多多一对 store+load。
+// 除此之外任何增长都视为回归。
 func TestOptimizeNeverGrowsCode(t *testing.T) {
-	const perCaseAllowance = 3
+	const perCaseAllowance = 32
 	totalBase, totalOpt := 0, 0
 	for _, tc := range corpus {
 		base := compileSrc(t, tc.src)

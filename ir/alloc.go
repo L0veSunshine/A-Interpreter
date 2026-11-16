@@ -59,6 +59,9 @@ func (f *Function) computeLiveness() {
 				if inst.Dst != NoValue {
 					delete(in, inst.Dst)
 				}
+				if inst.Dst2 != NoValue {
+					delete(in, inst.Dst2)
+				}
 				for _, a := range inst.Args {
 					if a != NoValue {
 						in[a] = true
@@ -139,18 +142,21 @@ func (f *Function) allocateSlots() int {
 		}
 		for i := len(b.Instrs) - 1; i >= 0; i-- {
 			in := b.Instrs[i]
-			// phi 的目标在块入口处就活跃，因此也要和 liveOut 里的值冲突；
-			// 另外与来自各前驱的实参冲突（它们在边上是同时读到的）。
-			if in.Op == OpPhi {
-				for _, a := range in.Args {
-					addEdge(in.Dst, a)
+			// phi 的目标在块入口处就活跃，因此也要和 liveOut 里的值冲突。
+			// 注意这里**不**加"phi 目标 vs 实参"的边：降级时边上的拷贝是
+			// 并行拷贝（先全部求值、再全部写回），实参与目标共用槽位是安全的，
+			// 而且正是靠它才能把循环携带变量的拷贝合并掉。
+			for _, dst := range []ValueID{in.Dst, in.Dst2} {
+				if dst == NoValue {
+					continue
 				}
-			}
-			if in.Dst != NoValue {
 				for v := range live {
-					addEdge(in.Dst, v)
+					addEdge(dst, v)
 				}
-				delete(live, in.Dst)
+				delete(live, dst)
+			}
+			if in.Dst != NoValue && in.Dst2 != NoValue {
+				addEdge(in.Dst, in.Dst2)
 			}
 			if in.Op == OpPhi {
 				// phi 的实参属于前驱块，不算本块的活跃值
@@ -186,6 +192,31 @@ func (f *Function) allocateSlots() int {
 	f.slot = make([]int, int(f.numValue)+1)
 	for i := range f.slot {
 		f.slot[i] = -1
+	}
+
+	// 合并偏好（coalescing）：phi 实参优先和 phi 目标共用槽位。
+	// 这样边上那条拷贝就是恒等拷贝，降级时可以直接省掉——
+	// 循环携带变量（每次迭代都要搬运）靠它才不会被"存-取"多付一次。
+	// 安全性由干涉图保证：真同时活跃时 taken 里已经占了目标槽位。
+	prefer := make([]ValueID, int(f.numValue)+1)
+	for _, b := range f.Blocks {
+		if len(b.Succs) != 1 {
+			continue
+		}
+		s := b.Succs[0]
+		idx := predIndex(s, b)
+		if idx < 0 {
+			continue
+		}
+		for _, in := range s.Instrs {
+			if in.Op != OpPhi || idx >= len(in.Args) {
+				continue
+			}
+			a := in.Args[idx]
+			if a != NoValue && a != in.Dst && prefer[a] == NoValue {
+				prefer[a] = in.Dst
+			}
+		}
 	}
 
 	// 形参固定原槽位
@@ -231,9 +262,15 @@ func (f *Function) allocateSlots() int {
 				taken[f.slot[n]] = true
 			}
 		}
-		s := 0
-		for taken[s] {
-			s++
+		s := -1
+		if p := prefer[v]; p != NoValue && f.slot[p] >= 0 && !taken[f.slot[p]] {
+			s = f.slot[p]
+		}
+		if s < 0 {
+			s = 0
+			for taken[s] {
+				s++
+			}
 		}
 		f.slot[v] = s
 		if s > maxSlot {

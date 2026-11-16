@@ -1,0 +1,74 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "XLang",
+  "scopeName": "source.xlang",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#functions" },
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [{ "name": "comment.line.number-sign.xlang", "match": "#.*$" }]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.xlang",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#escapes" }]
+        },
+        {
+          "name": "string.quoted.single.xlang",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#escapes" }]
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        { "name": "constant.character.escape.xlang", "match": "\\\\(?:[ntr0\\\\\"']|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})" },
+        { "name": "invalid.illegal.escape.xlang", "match": "\\\\." }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "(?<![\\p{L}_0-9])(def)(?![\\p{L}_0-9])([ \\t]+)([\\p{L}_][\\p{L}_0-9]*)",
+          "captures": {
+            "1": { "name": "keyword.control.function.xlang" },
+            "3": { "name": "entity.name.function.xlang" }
+          }
+        },
+        {
+          "name": "support.function.builtin.xlang",
+          "match": "(?<![\\p{L}_0-9.])(?:print|len|type|int|float)(?![\\p{L}_0-9])(?=\\s*\\()"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.xlang", "match": "(?<![\\p{L}_0-9])(?:def|for|if|else|return|break)(?![\\p{L}_0-9])" },
+        { "name": "storage.type.xlang", "match": "(?<![\\p{L}_0-9])var(?![\\p{L}_0-9])" },
+        { "name": "keyword.operator.logical.xlang", "match": "(?<![\\p{L}_0-9])(?:and|or|not)(?![\\p{L}_0-9])" },
+        { "name": "constant.language.xlang", "match": "(?<![\\p{L}_0-9])(?:true|false|none)(?![\\p{L}_0-9])" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.xlang", "match": "(?<![\\p{L}_0-9])(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO][0-7](?:_?[0-7])*|0[bB][01](?:_?[01])*|(?:[0-9](?:_?[0-9])*(?:\\.[0-9](?:_?[0-9])*)?|\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?)" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.xlang", "match": "\\*\\*=|//=|==|!=|<=|>=|\\+=|-=|\\*=|/=|%=|\\*\\*|//|[=<>!+*/%\\-]" },
+        { "name": "punctuation.separator.xlang", "match": "[.,:;]" }
+      ]
+    }
+  }
+}

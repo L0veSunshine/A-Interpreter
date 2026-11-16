@@ -1,0 +1,5 @@
+# compare.py 构建的 xlang 可执行文件
+.bin/
+
+# 运行时生成的字节码缓存
+*.xlc

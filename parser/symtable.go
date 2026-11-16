@@ -20,7 +20,7 @@ type Symbol struct {
 	// 这样同名函数在不同作用域里能各自定位，不会互相覆盖。
 	ScopeID int
 	// FuncID 是该局部变量所属的函数作用域编号（顶层为 0）。
-	// 编译器用它识别"嵌套函数访问外层局部变量"——本 VM 没有 upvalue，属于不支持。
+	// 编译器用它定位捕获变量所属的帧。
 	FuncID int
 }
 
@@ -53,6 +53,12 @@ func (n *MethodNames) FindIdx(name string) (int, bool) {
 		}
 	}
 	return -1, false
+}
+
+// Names 返回已登记的方法名，下标即 OpCallMethod 的方法名操作数。
+// 返回的切片是内部存储，调用方只读。
+func (n *MethodNames) Names() []string {
+	return n.methodName
 }
 
 type SymTable struct {
@@ -112,7 +118,7 @@ func (st *SymTable) Define(name string, t SymType) Symbol {
 }
 
 // DefineFunc 登记一个函数名，funcScope 是该函数自己的作用域编号。
-// 函数符号不占用局部槽位（它通过闭包常量引用）。
+// 局部函数占用槽位，保存每次执行定义时创建的闭包实例。
 func (st *SymTable) DefineFunc(name string, funcScope int) Symbol {
 	s := Symbol{
 		Name:      name,
@@ -124,6 +130,8 @@ func (st *SymTable) DefineFunc(name string, funcScope int) Symbol {
 	if st.Outer == nil {
 		s.ScopeType = Global
 		s.Id = st.numDefinitions
+	} else {
+		s.Id = st.AllocLocal()
 	}
 	st.store[name] = s
 	st.numDefinitions++

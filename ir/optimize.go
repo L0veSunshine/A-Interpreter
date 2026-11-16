@@ -1,6 +1,8 @@
 package ir
 
 import (
+	"fmt"
+
 	"Interpreter/bytecode"
 	"Interpreter/cfg"
 	"Interpreter/code"
@@ -9,16 +11,15 @@ import (
 
 // Optimize 是整个优化器的唯一入口。
 //
-// 语义保证：要么返回一份**行为等价**的新字节码，要么原样返回输入
-// （同时把原因作为 error 带出）。调用方可以在出错时安全地忽略优化结果。
-//
-// 优化是函数内局部变换，因此单个函数放弃不会影响其它函数：
-// 只要 main 能优化，就返回"尽可能优化过"的字节码；main 自己失败时
-// 原样返回（此时调用方应当使用未优化的字节码）。
+// 语义保证：返回的字节码要么与输入**行为等价**，要么那一部分保持原样。
+// 优化是函数内局部变换，因此"尽力而为"：某个函数放弃只影响它自己，
+// 其余函数照常优化；第一个失败原因通过 error 带出（仅作诊断用，调用方
+// 可以直接忽略）。
 //
 // 目前会放弃优化的情形：
-//   - 方法调用 / 切片字面量 / REPL 的隐式打印指令（IR 还没建模）
+//   - REPL 的隐式打印指令（IR 还没建模）
 //   - 块边界上操作数栈非空（需要栈上的 phi）
+//   - 闭包捕获与共享变量访问（必须保留原始局部槽位）
 //   - 任何一步分析自检失败（例如读未定义槽位）
 func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 	pool := newConstPool(bc.Constants)
@@ -27,10 +28,18 @@ func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 	// 但不会再新增函数，因此只处理原有的那些。
 	funcCount := len(pool.objs)
 
+	// main 优化失败不代表其它函数没救：main 中某个不支持的指令形态，
+	// 不应阻止函数体内的热循环照常优化。所以这里改成"尽力而为"：
+	// 失败的个体保留原样，成功的部分生效，同时把第一个失败原因带出去。
+	var firstErr error
+
 	mainIns, mainLines, mainLocals, err := optimizeFunction(
 		"<main>", 0, bc.Instruction, bc.Lines, bc.MainLocals, pool, true)
+	mainMaxStack := code.ConservativeMaxStack(mainIns)
 	if err != nil {
-		return bc, err
+		firstErr = err
+		mainIns, mainLines, mainLocals = bc.Instruction, bc.Lines, bc.MainLocals
+		mainMaxStack = bc.MainMaxStack
 	}
 
 	for i := 0; i < funcCount; i++ {
@@ -42,6 +51,9 @@ func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 			fn.FnName, fn.ParametersNum, fn.Instructions, fn.Lines, fn.LocalsNum, pool, false)
 		if ferr != nil {
 			// 单个函数放弃优化：保持原样即可，不影响调用它的代码
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", fn.FnName, ferr)
+			}
 			continue
 		}
 		fn.Instructions = ins
@@ -58,8 +70,8 @@ func Optimize(bc *bytecode.Bytecode) (*bytecode.Bytecode, error) {
 		Constants:    pool.objs,
 		Symbols:      bc.Symbols,
 		MainLocals:   mainLocals,
-		MainMaxStack: code.ConservativeMaxStack(mainIns),
-	}, nil
+		MainMaxStack: mainMaxStack,
+	}, firstErr
 }
 
 // maxLocals 与 VM 里 2 字节槽位操作数的上限一致。
@@ -86,14 +98,12 @@ func optimizeFunction(name string, params int, ins code.Instructions, lines []co
 	if fn == nil {
 		return ins, lines, prevLocals, nil
 	}
-
 	if err := fn.runSSA(); err != nil {
 		return nil, nil, 0, err
 	}
 	if err := fn.optimize(); err != nil {
 		return nil, nil, 0, err
 	}
-
 	outIns, outLines, locals, err := fn.lower(isMain)
 	if err != nil {
 		return nil, nil, 0, err

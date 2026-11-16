@@ -215,7 +215,7 @@ func (b *builder) step(op cfg.Op) (bool, error) {
 		b.emit(&Instr{Op: OpSink, Args: []ValueID{v}})
 		return false, nil
 
-	case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpMod, code.OpPow,
+	case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpMod, code.OpFloorDiv, code.OpPow,
 		code.OpGT, code.OpGTEq, code.OpLT, code.OpLTEq, code.OpEqual, code.OpNotEQ:
 		return false, b.binOp(op.Opcode)
 
@@ -373,6 +373,8 @@ func (b *builder) step(op cfg.Op) (bool, error) {
 		b.emit(&Instr{Op: OpMakeClosure, Dst: v, Imm: op.Operands[0]})
 		b.push(v)
 		return false, nil
+	case code.OpCaptureClosure, code.OpGetFree, code.OpSetFree:
+		return false, bail("closure cells require preserving local slots")
 
 	case code.OpCallFunc:
 		n := op.Operands[0]
@@ -393,7 +395,37 @@ func (b *builder) step(op cfg.Op) (bool, error) {
 		b.sawCall = true
 		return false, nil
 
-	case code.OpPrintTop, code.OpLoadMethod, code.OpCallMethod, code.OpMakeSlice:
+	case code.OpCallMethod:
+		args, err := b.popN(op.Operands[1])
+		if err != nil {
+			return false, err
+		}
+		self, err := b.pop()
+		if err != nil {
+			return false, err
+		}
+		result := b.fn.NewValue()
+		newSelf := b.fn.NewValue()
+		all := make([]ValueID, 0, len(args)+1)
+		all = append(all, self)
+		all = append(all, args...)
+		b.emit(&Instr{Op: OpMethodCall, Dst: result, Dst2: newSelf, Args: all, Imm: op.Operands[0]})
+		b.push(result)
+		b.push(newSelf)
+		b.sawCall = true
+		return false, nil
+
+	case code.OpMakeSlice:
+		parts, err := b.popN(3)
+		if err != nil {
+			return false, err
+		}
+		v := b.fn.NewValue()
+		b.emit(&Instr{Op: OpMakeSlice, Dst: v, Args: parts})
+		b.push(v)
+		return false, nil
+
+	case code.OpPrintTop:
 		return false, bail("opcode %s is not supported by the optimizer", op.Name())
 	}
 	return false, bail("unknown opcode %d", op.Opcode)

@@ -27,7 +27,7 @@ type Compiler struct {
 	// 每层循环出栈时各自回填自己的 break，互不干扰。
 	loops []loopCtx
 	// curFuncID 是当前正在编译的函数作用域编号（顶层为 0），
-	// 用于识别"闭包访问外层函数的局部变量"这类不支持的情况。
+	// 用于定位闭包捕获的局部变量。
 	curFuncID int
 	// fnIdx 记录"函数作用域编号 -> 常量池里的函数下标"，
 	// 让同名函数在不同作用域里能各自解析到自己的函数对象。
@@ -38,6 +38,8 @@ type Compiler struct {
 	optimize bool
 	// result 缓存优化后的字节码；非 nil 时 ByteCode 直接返回它
 	result *bytecode.Bytecode
+	// optimizeErr 记录优化器放弃的原因（仅诊断用，不影响正确性）
+	optimizeErr error
 }
 
 func NewScope() CompilationScope {
@@ -217,7 +219,7 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 			return
 		}
 		switch node.Op.Type {
-		case tokens.IPlus, tokens.IMinus, tokens.IMul, tokens.IDiv, tokens.IMod, tokens.IPow:
+		case tokens.IPlus, tokens.IMinus, tokens.IMul, tokens.IDiv, tokens.IMod, tokens.IPow, tokens.IFloorDiv:
 			ident := node.Left
 			s, ok := c.symTable.Resolve(ident.TokenLiteral())
 			if !ok {
@@ -238,6 +240,8 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 				c.emit(code.OpPow)
 			case tokens.IMod:
 				c.emit(code.OpMod)
+			case tokens.IFloorDiv:
+				c.emit(code.OpFloorDiv)
 			}
 			c.setScope(s)
 		default:
@@ -254,6 +258,8 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 				c.emit(code.OpDiv)
 			case tokens.Mod:
 				c.emit(code.OpMod)
+			case tokens.FloorDiv:
+				c.emit(code.OpFloorDiv)
 			case tokens.Pow:
 				c.emit(code.OpPow)
 			case tokens.GT:
@@ -334,11 +340,21 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 				c.NewErrorF("internal: method call arguments out of sync")
 				return
 			}
-			c.compile(method, optimize)
+			ident, ok := method.(ast.MethodNode)
+			if !ok {
+				c.NewErrorF("internal: method call without a method name")
+				return
+			}
+			idx, ok := c.symTable.Methods.FindIdx(ident.Value)
+			if !ok {
+				c.NewErrorF("can't find method %s.", strconv.Quote(ident.Value))
+				return
+			}
 			for _, args := range node.Arguments[i] {
 				c.compile(args, optimize)
 			}
-			c.emit(code.OpCallMethod, len(node.Arguments[i]))
+			// 方法名下标 + 实参个数：实现在运行时按接收者类型查表得到
+			c.emit(code.OpCallMethod, idx, len(node.Arguments[i]))
 			if ident, ok := node.Left.(ast.IdentNode); ok {
 				name := ident.Value
 				s, ok := c.symTable.Resolve(name)
@@ -352,11 +368,9 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 			}
 		}
 	case ast.MethodNode:
-		s, ok := c.symTable.Methods.FindIdx(node.Value)
-		if !ok {
-			c.NewErrorF("can't find method %s.", strconv.Quote(node.Str()))
-		}
-		c.emit(code.OpLoadMethod, s)
+		// 方法名在 ast.MethodCall 里直接解析成 OpCallMethod 的操作数，
+		// 不会单独发射指令；走到这里说明语法树形状不对。
+		c.NewErrorF("internal: method name %s used outside a method call", strconv.Quote(node.Value))
 	case ast.VarStatement:
 		c.compile(node.Value, optimize)
 		s, ok := c.symTable.Resolve(node.Indent.Value)
@@ -381,7 +395,7 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 			c.NewErrorF("undefined Identifier %s.", strconv.Quote(node.Str()))
 			return
 		}
-		if s.Type == parser.F && s.ScopeType != parser.BuiltIn {
+		if s.Type == parser.F && s.ScopeType == parser.Global {
 			idx, ok := c.fnIdx[s.ScopeID]
 			if !ok {
 				c.NewErrorF("function %s is used before it is defined.", strconv.Quote(node.Value))
@@ -411,6 +425,7 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 			return
 		}
 		c.curFuncID = node.ScopeID
+		c.scope[c.scopeIdx].funcID = node.ScopeID
 		// 函数体是独立的控制流，不能继承外层的循环（函数里 break 是错误）
 		c.loops = nil
 		paramsCount := len(node.Parameters)
@@ -426,6 +441,7 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 		}
 		numLocals := c.symTable.LocalSlots()
 		lines := c.curScope().lines
+		freeVars := c.curScope().freeVars
 		instructions := c.leaveScope()
 
 		compiledFn := object.CompiledFunc{
@@ -436,6 +452,7 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 			ParametersNum: paramsCount,
 			LineLoc:       node.Token.Loc.Line,
 			ScopeID:       node.ScopeID,
+			FreeVars:      freeVars,
 		}
 		err := c.constants.AddFunc(fnIdx, compiledFn)
 		if err != nil {
@@ -443,6 +460,14 @@ func (c *Compiler) compile(node ast.Node, optimize bool) {
 		}
 		c.symTable = savedTable
 		c.curFuncID, c.loops = savedFunc, savedLoops
+		if s, ok := c.symTable.Resolve(node.Name); ok && s.ScopeType == parser.Local {
+			if len(freeVars) > 0 || fnIdx > operandLimit(code.OpClosure, 0) {
+				c.emit(code.OpCaptureClosure, fnIdx)
+			} else {
+				c.emit(code.OpClosure, fnIdx)
+			}
+			c.setScope(s)
+		}
 	case ast.ReturnStatement:
 		if node.ReturnVal != nil {
 			c.compile(node.ReturnVal, optimize)
@@ -508,16 +533,24 @@ func (c *Compiler) Compile(node ast.Node) {
 }
 
 // optimizeByteCode 在编译成功后跑一遍 IR/SSA 优化。
-// 优化器是"要么等价、要么放弃"的契约：放弃时保留未优化字节码，
-// 因此这里失败不影响正确性，只是少了优化。
+//
+// 优化器是"尽力而为"的契约：每个函数要么被等价改写，要么保持原样，
+// 因此返回的字节码**总是**行为等价的，可以无条件采用；error 只带出
+// 第一个放弃原因，用于诊断。
 func (c *Compiler) optimizeByteCode() {
 	if !c.optimize || c.HasError() || c.scopeIdx != 0 {
 		return
 	}
 	raw := c.buildByteCode()
-	if opt, err := ir.Optimize(raw); err == nil {
-		c.result = opt
-	}
+	opt, err := ir.Optimize(raw)
+	c.result = opt
+	c.optimizeErr = err
+}
+
+// OptimizeErr 返回优化期间放弃的原因（没有放弃时为 nil）。
+// 它不影响正确性，只供测试与排障使用。
+func (c *Compiler) OptimizeErr() error {
+	return c.optimizeErr
 }
 
 func (c *Compiler) handleNoCall() {
@@ -541,7 +574,7 @@ func producesValue(node ast.Node) bool {
 	case ast.InfixExpr:
 		switch n.Op.Type {
 		case tokens.IPlus, tokens.IMinus, tokens.IMul,
-			tokens.IDiv, tokens.IPow, tokens.IMod:
+			tokens.IDiv, tokens.IFloorDiv, tokens.IPow, tokens.IMod:
 			return false
 		}
 	}
@@ -707,7 +740,8 @@ func (c *Compiler) replaceLast(target code.Opcode) {
 }
 
 func (c *Compiler) getScope(s parser.Symbol, optimize bool) {
-	if !c.checkCaptured(s) {
+	if s.ScopeType == parser.Local && s.FuncID != c.curFuncID {
+		c.emit(code.OpGetFree, c.capture(c.scopeIdx, s))
 		return
 	}
 	switch s.ScopeType {
@@ -733,7 +767,8 @@ func (c *Compiler) getScope(s parser.Symbol, optimize bool) {
 }
 
 func (c *Compiler) setScope(s parser.Symbol) {
-	if !c.checkCaptured(s) {
+	if s.ScopeType == parser.Local && s.FuncID != c.curFuncID {
+		c.emit(code.OpSetFree, c.capture(c.scopeIdx, s))
 		return
 	}
 	switch s.ScopeType {
@@ -744,19 +779,25 @@ func (c *Compiler) setScope(s parser.Symbol) {
 	}
 }
 
-// checkCaptured 拦截"嵌套函数访问外层函数的局部变量"。
-// 本 VM 没有 upvalue / 闭包环境，这种访问既读不到值也写不进正确槽位
-// （曾经表现为读到 None 或直接索引越界崩溃），因此明确报编译错误。
-func (c *Compiler) checkCaptured(s parser.Symbol) bool {
-	if s.ScopeType != parser.Local {
-		return true
+// Intermediate functions forward cells even when only a deeper function uses them.
+func (c *Compiler) capture(scope int, s parser.Symbol) int {
+	for i, captured := range c.scope[scope].captures {
+		if captured == s {
+			return i
+		}
 	}
-	if s.FuncID == c.curFuncID {
-		return true
+	if scope == 0 {
+		c.NewErrorF("internal: cannot capture variable %s from function %d", s.Name, s.FuncID)
+		return 0
 	}
-	c.NewErrorF("variable %s is an outer local captured by a nested function; closures over outer locals are not supported",
-		strconv.Quote(s.Name))
-	return false
+	free := object.FreeVar{Local: c.scope[scope-1].funcID == s.FuncID, Index: s.Id}
+	if !free.Local {
+		free.Index = c.capture(scope-1, s)
+	}
+	idx := len(c.scope[scope].captures)
+	c.scope[scope].captures = append(c.scope[scope].captures, s)
+	c.scope[scope].freeVars = append(c.scope[scope].freeVars, free)
+	return idx
 }
 
 type EmittedIns struct {
@@ -766,6 +807,9 @@ type EmittedIns struct {
 
 type CompilationScope struct {
 	instructions code.Instructions
+	funcID       int
+	captures     []parser.Symbol
+	freeVars     []object.FreeVar
 	// lines 是"指令偏移 -> 源码行"映射，只在行号变化时追加一条
 	lines []code.LineEntry
 	lastIns,

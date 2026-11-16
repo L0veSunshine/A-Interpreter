@@ -7,7 +7,15 @@ import (
 	"strings"
 )
 
-type ObjGOFunc func(object Object, args ...Object) []Object
+// ObjGOFunc 是内建方法的实现。
+//
+// 返回 (新的 self, 返回值, 错误)：
+//   - self 可能被整体替换（容器扩容后 slice 头变了），调用方必须把新的 self
+//     写回变量——这正是 `a.append(x)` 能改到 `a` 的原因；
+//   - 错误必须让调用方感知。早期版本用 `[]Object` 作返回值，错误只能塞进
+//     "self"那一格，结果 `s.split(1)` 这种类型错误会被静默吞掉并把 Error
+//     对象写进变量。
+type ObjGOFunc func(self Object, args []Object) (Object, Object, error)
 
 type MethodObj struct {
 	M ObjGOFunc
@@ -58,7 +66,31 @@ type CompiledFunc struct {
 	Called   bool
 	LineLoc  int
 	// ScopeID 对应解析期的函数作用域，反汇编时用它定位正确的符号表
-	ScopeID int
+	ScopeID  int
+	FreeVars []FreeVar
+}
+
+// FreeVar selects a shared cell from the defining frame or its closure.
+type FreeVar struct {
+	Local bool
+	Index int
+}
+
+type Cell struct {
+	Value Object
+}
+
+type Closure struct {
+	Fn   CompiledFunc
+	Free []*Cell
+}
+
+func (c *Closure) Type() ObjType {
+	return CompiledFuncObj
+}
+
+func (c *Closure) Inspect() string {
+	return fmt.Sprintf("Closure[%s:%p]", c.Fn.FnName, c)
 }
 
 func (cf CompiledFunc) Type() ObjType {
@@ -97,6 +129,8 @@ func (e Error) Inspect() string {
 	return format.Error + "Error: " + e.ErrorMsg
 }
 
+// RichCompare 以"同类型且 Inspect 相同"判定相等，是 Equal 的语义基准。
+// 它会为两边各分配一次字符串，热路径应使用 Equal。
 func RichCompare(v, w Object) bool {
 	res := v.Type() == w.Type()
 	res = res && (v.Inspect() == w.Inspect())

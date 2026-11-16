@@ -447,6 +447,7 @@ type operator struct {
 var operators = buildOperators([]operator{
 	// 3 字符
 	{text: "**=", typ: tokens.IPow},
+	{text: "//=", typ: tokens.IFloorDiv},
 	// 2 字符
 	{text: "==", typ: tokens.Equal},
 	{text: "!=", typ: tokens.NotEq},
@@ -458,6 +459,7 @@ var operators = buildOperators([]operator{
 	{text: "/=", typ: tokens.IDiv},
 	{text: "%=", typ: tokens.IMod},
 	{text: "**", typ: tokens.Pow},
+	{text: "//", typ: tokens.FloorDiv},
 	// 1 字符
 	{text: "=", typ: tokens.Assign},
 	{text: "<", typ: tokens.LT},

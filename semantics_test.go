@@ -143,17 +143,17 @@ f()`, "break outside of a loop")
 
 // ---- C: 闭包访问外层局部变量 ----
 
-func TestClosureOverOuterLocalIsRejected(t *testing.T) {
-	expectErr(t, `def outer(){
+func TestClosureOverOuterLocal(t *testing.T) {
+	expect(t, `def outer(){
 	var x=1
 	def inner(){
 		return x
 	}
 	return inner()
 }
-outer()`, "outer local")
+outer()`, "1")
 
-	expectErr(t, `def outer(){
+	expect(t, `def outer(){
 	var x=1
 	def inner(){
 		x=2
@@ -161,18 +161,17 @@ outer()`, "outer local")
 	inner()
 	return x
 }
-outer()`, "outer local")
+outer()`, "2")
 }
 
-// 参数属于本函数，嵌套函数里访问它同样不支持，但要给出清晰错误而不是崩溃。
-func TestClosureOverOuterParamIsRejected(t *testing.T) {
-	expectErr(t, `def outer(n){
+func TestClosureOverOuterParam(t *testing.T) {
+	expect(t, `def outer(n){
 	def inner(){
 		return n
 	}
 	return inner()
 }
-outer(1)`, "outer local")
+outer(1)`, "1")
 }
 
 // 顶层全局变量在函数里是可以读写的（这是现有的全局作用域语义）。

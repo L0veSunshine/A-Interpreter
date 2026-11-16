@@ -5,10 +5,10 @@ import (
 	"Interpreter/code"
 	"Interpreter/format"
 	"Interpreter/object"
+	"Interpreter/parser"
 	"Interpreter/utils"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 )
 
@@ -92,6 +92,11 @@ type VM struct {
 	// argBuf 是调用内建函数/方法时的实参缓冲。做成实例字段，
 	// 避免两个 VM 共享同一个包级切片而串数据。
 	argBuf []object.Object
+	// methods 是"方法名下标 -> 具体实现"的查表，按对象类别分行，
+	// 在 Run 开始时按本次字节码的符号表构建一次。
+	methods object.MethodTables
+	// methodNames 只在报错路径上用来把下标还原成方法名。
+	methodNames *parser.MethodNames
 }
 
 func NewVM() *VM {
@@ -244,6 +249,12 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	vm.frames[0].localsBase = 0
 	vm.frames[0].Name = "<main>"
 	vm.constants = bytecode.Constants
+	// 方法实现表按本次字节码的符号表构建：一次 O(类别×方法名) 的查表，
+	// 之后每次方法调用只是一次数组下标，不再做字符串 map 查找。
+	if bytecode.Symbols != nil && bytecode.Symbols.Methods != nil {
+		vm.methodNames = bytecode.Symbols.Methods
+		vm.methods = object.BuildMethodTables(bytecode.Symbols.Methods.Names())
+	}
 	// 按编译期算出的上界预留操作数栈：之后执行循环里不再检查容量。
 	// 上界缺失（0，例如手工拼的字节码）时退回保守上界，保证仍然安全。
 	vm.reserveStack(vm.mainStackNeed(bytecode) + stackSlack)
@@ -295,7 +306,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			vm.lastPop = vm.pop()
 		case code.OpPrintTop:
 			vm.printTop()
-		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpMod:
+		case code.OpAdd, code.OpSub, code.OpMul, code.OpDiv, code.OpPow, code.OpMod, code.OpFloorDiv:
 			err := vm.executeBinOp(op)
 			if err != nil {
 				return err
@@ -413,6 +424,9 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 				return fmt.Errorf(format.Alert+"calling non-function and non-built-in (type %s)",
 					callee.Type())
 			}
+			if len(fn.FreeVars) != 0 {
+				return fmt.Errorf("function %s requires a closure environment", fn.FnName)
+			}
 			// 先把当前位置写回，返回时才能接着执行
 			frame.ip = ip
 			if err := vm.callFunc(&fn, numArgs, false); err != nil {
@@ -420,6 +434,26 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			}
 			frame = vm.currentFrame()
 			ins, ip = frame.ins, frame.ip
+		case code.OpIndexBinFused:
+			// [kindAB][binOp][idxA][idxB] == 计算 A binOp B 作为下标，读取栈顶容器
+			kindAB := ins[ip+1]
+			subOp := code.Opcode(ins[ip+2])
+			left := vm.fusedOperand(kindAB>>4, readU16(ins, ip+3), frame)
+			right := vm.fusedOperand(kindAB&0x0f, readU16(ins, ip+5), frame)
+			if err := vm.fusedIndex(subOp, left, right); err != nil {
+				return err
+			}
+			ip += 6
+		case code.OpUpdateBinFused:
+			// [kindAB][binOp][idxA][idxB] == 计算 A binOp B 作为下标，写入 容器[下标] = 值
+			kindAB := ins[ip+1]
+			subOp := code.Opcode(ins[ip+2])
+			left := vm.fusedOperand(kindAB>>4, readU16(ins, ip+3), frame)
+			right := vm.fusedOperand(kindAB&0x0f, readU16(ins, ip+5), frame)
+			if err := vm.fusedUpdate(subOp, left, right); err != nil {
+				return err
+			}
+			ip += 6
 		case code.OpReturnOperand:
 			// [kind][idx] == 压入该操作数并返回
 			val := vm.fusedOperand(ins[ip+1], readU16(ins, ip+2), frame)
@@ -445,21 +479,32 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 		case code.OpSetLocal:
 			varIdx = readU16(ins, ip+1)
 			ip += 2
-			frame.vars[varIdx] = vm.pop()
+			setFrameLocal(frame, varIdx, vm.pop())
 		case code.OpGetLocal:
 			varIdx = readU16(ins, ip+1)
 			ip += 2
-			// 热路径，内联 localAt：越界/未赋值都返回 None
-			vars := frame.vars
-			if int(varIdx) < len(vars) && vars[varIdx] != nil {
-				vm.put(vars[varIdx])
-			} else {
-				vm.put(NullObj)
-			}
+			vm.put(frameLocal(frame, varIdx))
 		case code.OpUpdateLocal:
 			varIdx = readU16(ins, ip+1)
 			ip += 2
-			frame.vars[varIdx] = vm.top()
+			setFrameLocal(frame, varIdx, vm.top())
+		case code.OpGetFree, code.OpSetFree:
+			idx := int(readU16(ins, ip+1))
+			ip += 2
+			if idx >= len(frame.free) || frame.free[idx] == nil {
+				return fmt.Errorf("invalid captured variable index %d", idx)
+			}
+			if op == code.OpGetFree {
+				vm.put(frame.free[idx].Value)
+			} else {
+				frame.free[idx].Value = vm.pop()
+			}
+		case code.OpCaptureClosure:
+			idx := int(readU16(ins, ip+1))
+			ip += 2
+			if err := vm.captureClosure(idx, frame); err != nil {
+				return err
+			}
 		case code.OpGetBuiltin:
 			builtinIdx := ins[ip+1]
 			ip += 1
@@ -474,7 +519,7 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			ele := make([]object.Object, gap)
 			copy(ele, vm.stack[vm.sp-gap:vm.sp])
 			vm.sp -= gap //栈指针归位
-			vm.put(object.Array{Elements: ele})
+			vm.put(&object.Array{Elements: ele})
 		case code.OpMakeSlice:
 			sliceObj := object.Slice{}
 			sliceObj.Start = vm.stack[vm.sp-3]
@@ -499,26 +544,13 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 			if err != nil {
 				return err
 			}
-		case code.OpLoadMethod:
-			varIdx = readU16(ins, ip+1)
-			ip += 2
-			mName := bytecode.Symbols.Methods.FindName(int(varIdx))
-			objType := vm.top().Type()
-			var method object.Object
-			var err error
-			method, err = object.FindMethod(objType, mName)
-			if err != nil {
-				return err
-			}
-			err = vm.push(method)
-			if err != nil {
-				return err
-			}
 		case code.OpCallMethod:
-			argsNum := ins[ip+1]
-			ip += 1
-			err := vm.callMethod(int(argsNum))
-			if err != nil {
+			// [methodIdx u16][argc u8]
+			methodIdx := int(readU16(ins, ip+1))
+			argsNum := int(ins[ip+3])
+			// 本条共 4 字节；循环开头还会 ip++，所以这里只前进 3
+			ip += 3
+			if err := vm.callMethod(methodIdx, argsNum); err != nil {
 				return err
 			}
 		}
@@ -526,33 +558,51 @@ func (vm *VM) Run(bytecode *bytecode.Bytecode) (err error) {
 	return nil
 }
 
-func (vm *VM) callMethod(argsNum int) error {
-	baseIdx := vm.sp - argsNum - 1
-	if baseIdx-1 < 0 {
+// callMethod 执行一次内建方法调用。
+//
+// 栈布局是 [self][arg0..argN-1]，调用后变成 [value][self]：
+// 编译器随后用 OpUpdateLocal/OpUpdateGlobal 把 self 写回变量
+// （容器扩容后 slice 头变了，必须写回）。
+func (vm *VM) callMethod(methodIdx, argsNum int) error {
+	base := vm.sp - argsNum - 1
+	if base < 0 {
 		return fmt.Errorf(format.Alert + "invalid method call: not enough values on stack")
 	}
-	obj := vm.stack[baseIdx-1]
-	method := vm.stack[baseIdx]
-	baseIdx++
+	self := vm.stack[base]
+	// 用类型断言分派而不是 self.Type()：ObjType 是 string 类型，
+	// 每次比较都是"长度 + memcmp"，而接口类型断言只是一次指针比较。
+	var kind object.MethodKind
+	switch self.(type) {
+	case *object.Array:
+		kind = object.KindArray
+	case object.String:
+		kind = object.KindString
+	default:
+		return object.MissingMethodError(self.Type(), vm.methodName(methodIdx))
+	}
+	fn := vm.methods.Lookup(kind, methodIdx)
+	if fn == nil {
+		return object.MissingMethodError(self.Type(), vm.methodName(methodIdx))
+	}
 	vm.argBuf = vm.argBuf[:0]
-	for ; baseIdx < vm.sp; baseIdx++ {
-		vm.argBuf = append(vm.argBuf, vm.stack[baseIdx])
-	}
-	methodFunc, ok := method.(object.MethodObj)
-	if !ok || methodFunc.M == nil {
-		return fmt.Errorf(format.Alert + "Method is invaild")
-	}
-	returnObj := methodFunc.M(obj, vm.argBuf...)
-	vm.sp = vm.sp - argsNum - 2
-	var err error
-	if len(returnObj) >= 2 {
-		err = vm.push(returnObj[1]) //push returned value
-	}
-	err = vm.push(returnObj[0]) //push self
+	vm.argBuf = append(vm.argBuf, vm.stack[base+1:vm.sp]...)
+	newSelf, result, err := fn(self, vm.argBuf)
 	if err != nil {
 		return err
 	}
-	return nil
+	vm.sp = base
+	if err := vm.push(result); err != nil {
+		return err
+	}
+	return vm.push(newSelf)
+}
+
+// methodName 只在报错路径上用，所以不放进热路径的方法表里。
+func (vm *VM) methodName(idx int) string {
+	if vm.methodNames == nil {
+		return ""
+	}
+	return vm.methodNames.FindName(idx)
 }
 
 func (vm *VM) executeBinOp(op code.Opcode) error {
@@ -600,10 +650,8 @@ func (vm *VM) resolveArithOp(op code.Opcode, left, right object.Object) (object.
 // 这里刻意不走"构造 Boolean 对象再转回 bool"的路径：条件分支只需要真假，
 // 构造对象纯属浪费（还要过一次接口写入/读取）。
 func resolveCmpBool(op code.Opcode, left, right object.Object) (bool, error) {
-	if lv, ok := numOf(left); ok {
-		if rv, ok := numOf(right); ok {
-			return numCompare(op, lv, rv)
-		}
+	if res, ok, err := numericCompare(op, left, right); ok {
+		return res, err
 	}
 	res, err := resolveCmpSlow(op, left, right)
 	if err != nil {
@@ -614,14 +662,11 @@ func resolveCmpBool(op code.Opcode, left, right object.Object) (bool, error) {
 
 // resolveCmpOp 是比较运算的值返回版本，与 compareBinOp 共用同一份语义实现。
 func resolveCmpOp(op code.Opcode, left, right object.Object) (object.Object, error) {
-	if lv, ok := numOf(left); ok {
-		if rv, ok := numOf(right); ok {
-			b, err := numCompare(op, lv, rv)
-			if err != nil {
-				return nil, err
-			}
-			return boolObj(b), nil
+	if res, ok, err := numericCompare(op, left, right); ok {
+		if err != nil {
+			return nil, err
 		}
+		return boolObj(res), nil
 	}
 	return resolveCmpSlow(op, left, right)
 }
@@ -659,51 +704,17 @@ func (vm *VM) compareBinOp(op code.Opcode) error {
 	right := vm.pop()
 	left := vm.top()
 	// 数值比较快路径留在本函数内，理由同 executeBinOp。
-	if lv, ok := numOf(left); ok {
-		if rv, ok := numOf(right); ok {
-			res, err := resolveNumCompare(op, lv, rv)
-			if err != nil {
-				return err
-			}
-			return vm.replace(res)
+	if res, ok, err := numericCompare(op, left, right); ok {
+		if err != nil {
+			return err
 		}
+		return vm.replace(boolObj(res))
 	}
 	res, err := resolveCmpSlow(op, left, right)
 	if err != nil {
 		return err
 	}
 	return vm.replace(res)
-}
-
-// resolveNumCompare 数值比较：一律按 float64 语义（与原实现一致）。
-func resolveNumCompare(op code.Opcode, lv, rv float64) (object.Object, error) {
-	b, err := numCompare(op, lv, rv)
-	if err != nil {
-		return nil, err
-	}
-	return boolObj(b), nil
-}
-
-// numCompare 是数值比较的语义实现，返回原生布尔值。
-func numCompare(op code.Opcode, lv, rv float64) (bool, error) {
-	var res bool
-	switch op {
-	case code.OpEqual:
-		res = lv == rv
-	case code.OpNotEQ:
-		res = lv != rv
-	case code.OpGT:
-		res = lv > rv
-	case code.OpGTEq:
-		res = lv >= rv
-	case code.OpLT:
-		res = lv < rv
-	case code.OpLTEq:
-		res = lv <= rv
-	default:
-		return false, fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
-	}
-	return res, nil
 }
 
 // resolveCmpSlow 处理字符串比较、复合类型比较与类型错误。
@@ -716,20 +727,48 @@ func resolveCmpSlow(op code.Opcode, left, right object.Object) (object.Object, e
 	return resolveObjCompare(op, left, right)
 }
 
-// numOf 把数值对象取成 float64；比较一律按浮点语义（与原实现一致）。
-func numOf(obj object.Object) (float64, bool) {
-	switch v := obj.(type) {
-	case object.Int:
-		return float64(v.Value), true
-	case object.Float:
-		return v.Value, true
+// 三路比较结果复用 object.Order；与 NaN 比较时既不相等也不有序。
+const (
+	cmpLess    = object.Less
+	cmpEqual   = object.Equal
+	cmpGreater = object.Greater
+)
+
+// numericCompare 比较两个数值对象，第二个返回值表示"两边都是数值"。
+// 具体的三路比较在 object.CompareNumeric 里（IR 常量折叠共用同一份实现）。
+func numericCompare(op code.Opcode, left, right object.Object) (bool, bool, error) {
+	order, ok := object.CompareNumeric(left, right)
+	if !ok {
+		return false, false, nil
 	}
-	return 0, false
+	return compareOrder(op, order)
+}
+
+// compareOrder 把三路比较结果映射成具体比较运算。
+func compareOrder(op code.Opcode, order object.Order) (bool, bool, error) {
+	var res bool
+	switch op {
+	case code.OpEqual:
+		res = order == cmpEqual
+	case code.OpNotEQ:
+		res = order != cmpEqual
+	case code.OpGT:
+		res = order == cmpGreater
+	case code.OpGTEq:
+		res = order == cmpGreater || order == cmpEqual
+	case code.OpLT:
+		res = order == cmpLess
+	case code.OpLTEq:
+		res = order == cmpLess || order == cmpEqual
+	default:
+		return false, true, fmt.Errorf(format.Alert+"unsupport operator for NumberObj: %d", op)
+	}
+	return res, true, nil
 }
 
 func resolveObjCompare(op code.Opcode, left, right object.Object) (object.Object, error) {
 	// 不能用哈希值比较：Array/Map 等复合类型没有稳定的哈希语义
-	eq := object.RichCompare(left, right)
+	eq := object.ValueEqual(left, right)
 	var res bool
 	switch op {
 	case code.OpEqual:
@@ -814,6 +853,11 @@ func resolveIntBinOp(op code.Opcode, leftVal, rightVal int) (object.Object, erro
 			return nil, DivZeroErr
 		}
 		res = leftVal % rightVal
+	case code.OpFloorDiv:
+		if rightVal == 0 {
+			return nil, DivZeroErr
+		}
+		res = object.FloorDivInt(leftVal, rightVal)
 	case code.OpPow:
 		fRes = math.Pow(float64(leftVal), float64(rightVal))
 		return object.Float{Value: fRes}, nil
@@ -828,17 +872,17 @@ var DivZeroErr = fmt.Errorf(format.Alert + "division by zero")
 func resolveFloatBinOp(op code.Opcode, left, right object.Object) (object.Object, error) {
 	var leftVal float64
 	var rightVal float64
-	switch left.(type) {
+	switch leftObj := left.(type) {
 	case object.Int:
-		leftVal = float64(left.(object.Int).Value)
+		leftVal = float64(leftObj.Value)
 	case object.Float:
-		leftVal = left.(object.Float).Value
+		leftVal = leftObj.Value
 	}
-	switch right.(type) {
+	switch rightObj := right.(type) {
 	case object.Int:
-		rightVal = float64(right.(object.Int).Value)
+		rightVal = float64(rightObj.Value)
 	case object.Float:
-		rightVal = right.(object.Float).Value
+		rightVal = rightObj.Value
 	}
 	var res float64
 	switch op {
@@ -855,7 +899,15 @@ func resolveFloatBinOp(op code.Opcode, left, right object.Object) (object.Object
 			return nil, DivZeroErr
 		}
 	case code.OpMod:
+		if rightVal == 0 {
+			return nil, DivZeroErr
+		}
 		res = math.Mod(leftVal, rightVal)
+	case code.OpFloorDiv:
+		if rightVal == 0 {
+			return nil, DivZeroErr
+		}
+		res = object.FloorDivFloat(leftVal, rightVal)
 	case code.OpPow:
 		res = math.Pow(leftVal, rightVal)
 	default:
@@ -875,6 +927,11 @@ func resolveStrBinOp(op code.Opcode, left, right object.Object) (object.Object, 
 
 func (vm *VM) executePrefix(op code.Opcode) error {
 	token := vm.top()
+	// not 走与 if / and / or 完全相同的真值判定（objToNativeBool），
+	// 所以 not 0 == true、not "" == false；+/- 仍然只接受数值。
+	if op == code.OpNot {
+		return vm.replace(nativeBoolToBool(!objToNativeBool(token)))
+	}
 	switch token.Type() {
 	case object.IntObj:
 		value := token.(object.Int).Value
@@ -897,25 +954,19 @@ func (vm *VM) executePrefix(op code.Opcode) error {
 		}
 		return vm.replace(object.Float{Value: value})
 	case object.BooleanObj:
-		value := token.(object.Boolean).Value
-		if op == code.OpNot {
-			value = !value
-		} else {
-			return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
-		}
-		return vm.replace(nativeBoolToBool(value))
+		return fmt.Errorf(format.Alert+"unkonwn opCode %s for %s", string(op), token.Type())
 	case object.NullObj:
-		// None 是假值：not None == True；+None / -None 仍然是类型错误
-		if op == code.OpNot {
-			return vm.replace(nativeBoolToBool(true))
-		}
 		return fmt.Errorf(format.Alert+"unsupported type for negation: %s", token.Type())
 	}
 	return fmt.Errorf(format.Alert+"unsupported type for negation: %s", token.Type())
 }
 
 func (vm *VM) applyIndex() error {
-	IdxIdent := vm.pop()
+	return vm.indexWith(vm.pop())
+}
+
+// indexWith 以 IdxIdent 为下标读取栈顶容器，结果替换容器。
+func (vm *VM) indexWith(IdxIdent object.Object) error {
 	switch IdxIdent.Type() {
 	case object.IntObj:
 		return vm.integerIndex(IdxIdent.(object.Int).Value)
@@ -931,7 +982,7 @@ func (vm *VM) integerIndex(idx int) error {
 	obj := vm.top()
 	var err error
 	switch obj := obj.(type) {
-	case object.Array:
+	case *object.Array:
 		maxLen := len(obj.Elements) - 1
 		if idx > maxLen {
 			return fmt.Errorf(format.Alert+"%s index out of range", obj.Type())
@@ -1000,7 +1051,7 @@ func (vm *VM) sliceIndex(s object.Slice) error {
 	var start, end, step int
 	var err error
 	switch obj := obj.(type) {
-	case object.Array:
+	case *object.Array:
 		start, end, step = vm.handleSlice(s, len(obj.Elements))
 		var newArr []object.Object
 		if step > 0 {
@@ -1012,7 +1063,7 @@ func (vm *VM) sliceIndex(s object.Slice) error {
 				newArr = append(newArr, obj.Elements[start])
 			}
 		}
-		err = vm.replace(object.Array{Elements: newArr})
+		err = vm.replace(&object.Array{Elements: newArr})
 		if err != nil {
 			return err
 		}
@@ -1062,29 +1113,111 @@ func (vm *VM) handleSlice(s object.Slice, maxLen int) (start, end, step int) {
 	return
 }
 
+// intArith 对两个整数做加/减/乘/取模，结果仍为整数时直接返回原生 int，
+// 供融合下标指令避免为中间结果装箱。ok=false 表示结果不是整数（如除法、幂），
+// 调用方应退回通用路径。取模为零的错误与 resolveIntBinOp 保持一致。
+func intArith(op code.Opcode, l, r int) (res int, ok bool, err error) {
+	switch op {
+	case code.OpAdd:
+		return l + r, true, nil
+	case code.OpSub:
+		return l - r, true, nil
+	case code.OpMul:
+		return l * r, true, nil
+	case code.OpMod:
+		if r == 0 {
+			return 0, false, DivZeroErr
+		}
+		return l % r, true, nil
+	}
+	return 0, false, nil
+}
+
+// fusedIndex 计算 left op right 作为下标，读取栈顶容器（容器留在栈上后被替换）。
+func (vm *VM) fusedIndex(op code.Opcode, left, right object.Object) error {
+	if l, ok := left.(object.Int); ok {
+		if r, ok := right.(object.Int); ok {
+			v, isInt, err := intArith(op, l.Value, r.Value)
+			if err != nil {
+				return err
+			}
+			if isInt {
+				return vm.integerIndex(v)
+			}
+		}
+	}
+	key, err := vm.resolveArithOp(op, left, right)
+	if err != nil {
+		return err
+	}
+	return vm.indexWith(key)
+}
+
+// fusedUpdate 计算 left op right 作为下标，执行 容器[下标] = 值。
+// 栈布局与 OpUpdate 一致：[target][container]，结束后只留 container。
+func (vm *VM) fusedUpdate(op code.Opcode, left, right object.Object) error {
+	if l, ok := left.(object.Int); ok {
+		if r, ok := right.(object.Int); ok {
+			v, isInt, err := intArith(op, l.Value, r.Value)
+			if err != nil {
+				return err
+			}
+			if isInt {
+				// 数组写入是最热的情况：整数下标直接落到底层数组，不做装箱
+				if arr, ok := vm.top().(*object.Array); ok {
+					if err := storeArrayElem(arr, v, vm.stack[vm.sp-2]); err != nil {
+						return err
+					}
+					vm.stack[vm.sp-2] = vm.top()
+					vm.sp--
+					return nil
+				}
+				return vm.updateWithKey(intObj(v))
+			}
+		}
+	}
+	key, err := vm.resolveArithOp(op, left, right)
+	if err != nil {
+		return err
+	}
+	return vm.updateWithKey(key)
+}
+
+// storeArrayElem 写入 arr[idx]，支持负下标；越界报错。
+// Elements 与调用方的 Array 共享底层数组，写入对所有持有者可见。
+func storeArrayElem(arr *object.Array, idx int, target object.Object) error {
+	if idx < 0 {
+		idx += len(arr.Elements)
+	}
+	if idx < 0 || idx >= len(arr.Elements) {
+		return fmt.Errorf(format.Alert + "list assignment index out of range")
+	}
+	arr.Elements[idx] = target
+	return nil
+}
+
 func (vm *VM) arrayUpdate() error {
 	key := vm.pop()
-	array := vm.pop()
+	return vm.updateWithKey(key)
+}
+
+// updateWithKey 执行 container[key] = target。栈上布局为 [target][container]，
+// 弹出后把容器压回（与 OpUpdate 的栈效应一致）。
+func (vm *VM) updateWithKey(key object.Object) error {
+	container := vm.pop()
 	var idxI int
 	target := vm.pop()
-	var pointer *object.Array
-	switch array := array.(type) {
-	case object.Array:
+	switch array := container.(type) {
+	case *object.Array:
 		idx, ok := key.(object.Int)
 		if !ok {
 			return fmt.Errorf(format.Alert+"error index %s", key.Inspect())
 		}
-		idxI = idx.Value
-		length := len(array.Elements)
-		if idxI < 0 {
-			idxI = idxI + length
+		// 压回原来的接口值，避免把 Array 结构体重新装箱（每次写入一次堆分配）。
+		if err := storeArrayElem(array, idx.Value, target); err != nil {
+			return err
 		}
-		if idxI < 0 || idxI >= len(array.Elements) {
-			return fmt.Errorf(format.Alert + "list assignment index out of range")
-		}
-		pointer = &array
-		pointer.Elements[idxI] = target
-		err := vm.push(array)
+		err := vm.push(container)
 		if err != nil {
 			return err
 		}
@@ -1177,12 +1310,56 @@ func (vm *VM) setGlobal(idx uint16, obj object.Object) error {
 	return nil
 }
 
-func (vm *VM) localAt(idx uint16) object.Object {
-	vars := vm.currentFrame().vars
-	if int(idx) >= len(vars) || vars[idx] == nil {
+func frameLocal(frame *Frame, idx uint16) object.Object {
+	if cell := frame.captured[int(idx)]; cell != nil {
+		return cell.Value
+	}
+	if int(idx) >= len(frame.vars) || frame.vars[idx] == nil {
 		return NullObj
 	}
-	return vars[idx]
+	return frame.vars[idx]
+}
+
+func setFrameLocal(frame *Frame, idx uint16, value object.Object) {
+	if cell := frame.captured[int(idx)]; cell != nil {
+		cell.Value = value
+	} else {
+		frame.vars[idx] = value
+	}
+}
+
+func (vm *VM) captureClosure(idx int, frame *Frame) error {
+	if idx < 0 || idx >= len(vm.constants) {
+		return fmt.Errorf("closure constant index %d out of range", idx)
+	}
+	fn, ok := vm.constants[idx].(object.CompiledFunc)
+	if !ok {
+		return fmt.Errorf("closure constant %d is not a function", idx)
+	}
+	free := make([]*object.Cell, len(fn.FreeVars))
+	for i, spec := range fn.FreeVars {
+		if spec.Local {
+			if spec.Index < 0 || spec.Index >= len(frame.vars) {
+				return fmt.Errorf("captured local index %d out of range", spec.Index)
+			}
+			if frame.captured == nil {
+				frame.captured = make(map[int]*object.Cell)
+			}
+			cell := frame.captured[spec.Index]
+			if cell == nil {
+				cell = &object.Cell{Value: frameLocal(frame, uint16(spec.Index))}
+				frame.captured[spec.Index] = cell
+			}
+			free[i] = cell
+		} else {
+			if spec.Index < 0 || spec.Index >= len(frame.free) || frame.free[spec.Index] == nil {
+				return fmt.Errorf("captured free index %d out of range", spec.Index)
+			}
+			free[i] = frame.free[spec.Index]
+		}
+	}
+	vm.put(&object.Closure{Fn: fn, Free: free})
+	return nil
 }
 
 // allocLocals 从共享槽位区里切出 n 个槽位给新帧，并清零成 None。
@@ -1221,11 +1398,7 @@ func (vm *VM) allocLocals(n int) []object.Object {
 func (vm *VM) fusedOperand(kind byte, idx uint16, frame *Frame) object.Object {
 	switch kind {
 	case code.OperandLocal:
-		vars := frame.vars
-		if int(idx) < len(vars) && vars[idx] != nil {
-			return vars[idx]
-		}
-		return NullObj
+		return frameLocal(frame, idx)
 	case code.OperandGlobal:
 		return vm.globalAt(idx)
 	default:
@@ -1281,7 +1454,9 @@ func (vm *VM) pushFrame(calleeName string, calleeLine int) (*Frame, error) {
 
 func (vm *VM) popFrame() Frame {
 	vm.frameIdx--
-	return vm.frames[vm.frameIdx]
+	frame := vm.frames[vm.frameIdx]
+	vm.frames[vm.frameIdx] = Frame{}
+	return frame
 }
 
 func (vm *VM) executeCall(numArgs int) error {
@@ -1292,8 +1467,20 @@ func (vm *VM) executeCall(numArgs int) error {
 	callee := vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
 	case object.CompiledFunc:
+		if len(callee.FreeVars) != 0 {
+			return fmt.Errorf("function %s requires a closure environment", callee.FnName)
+		}
 		// 传指针：CompiledFunc 有一百多字节，按值再传一次就多一次拷贝
 		return vm.callFunc(&callee, numArgs, true)
+	case *object.Closure:
+		if len(callee.Free) != len(callee.Fn.FreeVars) {
+			return fmt.Errorf("invalid closure environment for %s", callee.Fn.FnName)
+		}
+		if err := vm.callFunc(&callee.Fn, numArgs, true); err != nil {
+			return err
+		}
+		vm.currentFrame().free = callee.Free
+		return nil
 	case object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
 	default:
@@ -1324,9 +1511,7 @@ func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int, calleeOnStack bool)
 	base := vm.localsTop
 	newVars := vm.allocLocals(fn.LocalsNum)
 	args := vm.stack[vm.sp-numArgs : vm.sp]
-	for idx, arg := range args {
-		newVars[idx] = arg
-	}
+	copy(newVars, args)
 	// 按被调函数的上界预留操作数栈（CPython 的 frame_size）。
 	// 帧基址是 sp - numArgs，形参已经占着 numArgs 个槽位，
 	// 所以峰值是 basePoint + numArgs + MaxStack。
@@ -1344,6 +1529,8 @@ func (vm *VM) callFunc(fn *object.CompiledFunc, numArgs int, calleeOnStack bool)
 	frame.ins = fn.Instructions
 	frame.lines = fn.Lines
 	frame.vars = newVars
+	frame.free = nil
+	frame.captured = nil
 	frame.basePoint = basePoint
 	frame.localsBase = base
 	frame.Name = fn.FnName
@@ -1394,22 +1581,4 @@ func (vm *VM) callBuiltin(builtin object.Builtin, argNums int) error {
 	return vm.push(result)
 }
 
-func (vm *VM) debug(operandWidth int) {
-	var sb strings.Builder
-	sb.WriteString("[")
-	for idx, o := range vm.stack {
-		if o != nil {
-			sb.WriteString(o.Inspect() + ",")
-		} else {
-			sb.WriteString("nil,")
-		}
-		if idx == vm.sp {
-			break
-		}
-	}
-	sb.WriteString("]")
-	cur := vm.currentFrame()
-	fmt.Println("Current Frame:" + strconv.Itoa(vm.frameIdx) + " Instruction Pointer:" +
-		strconv.Itoa(cur.ip-operandWidth))
-	fmt.Println("Stack: "+sb.String()+"  Current Pointer:", vm.sp)
-}
+

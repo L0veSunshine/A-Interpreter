@@ -84,6 +84,8 @@ func TestAllOperatorsMaximalMunch(t *testing.T) {
 		"*=":  tokens.IMul,
 		"**":  tokens.Pow,
 		"**=": tokens.IPow,
+		"//":  tokens.FloorDiv,
+		"//=": tokens.IFloorDiv,
 		"/":   tokens.Div,
 		"/=":  tokens.IDiv,
 		"%":   tokens.Mod,

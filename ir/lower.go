@@ -102,6 +102,13 @@ func (f *Function) lower(isMain bool) (code.Instructions, []code.LineEntry, int,
 	if err := e.patchJumps(); err != nil {
 		return nil, nil, 0, err
 	}
+	// 主函数里的 OpExit 需要显式跳到末尾（见 emitTerminator），
+	// 末尾偏移只有全部块都发射完才知道，所以在这里统一回填。
+	end := len(e.ins)
+	for _, pos := range e.endJumps {
+		newIns := code.Make(code.Opcode(e.ins[pos]), end)
+		copy(e.ins[pos:pos+len(newIns)], newIns)
+	}
 	return e.ins, e.lines, numSlots, nil
 }
 
@@ -128,8 +135,10 @@ func (f *Function) defBlocks() []*Block {
 	out := make([]*Block, int(f.numValue)+1)
 	for _, b := range f.Blocks {
 		for _, in := range b.Instrs {
-			if in.Dst != NoValue && int(in.Dst) < len(out) {
-				out[in.Dst] = b
+			for _, dst := range []ValueID{in.Dst, in.Dst2} {
+				if dst != NoValue && int(dst) < len(out) {
+					out[dst] = b
+				}
 			}
 		}
 	}
@@ -197,6 +206,9 @@ type emitter struct {
 	useCount    []int
 	defBlock    []*Block
 	crossBlock  []bool
+	// endJumps 记录"跳到函数末尾"的合成跳转（只在主函数的 OpExit 上出现），
+	// 位置在 lower() 发射完所有块之后统一回填。
+	endJumps []int
 }
 
 func (e *emitter) emit(op code.Opcode, operands ...int) {
@@ -289,6 +301,11 @@ func (e *emitter) emitValue(v ValueID, done map[ValueID]bool) error {
 	if d == nil || e.slotOnly(v) || done[v] || d.Op == OpNop {
 		return e.loadValue(v)
 	}
+	savedLine := e.curLine
+	if d.Line > 0 && !d.CannotTrap() {
+		e.curLine = d.Line
+	}
+	defer func() { e.curLine = savedLine }()
 	done[v] = true
 	// 常量 callee 的调用：callee 不压栈，直接按常量发调用
 	if fnIdx, ok := e.constCallee(d); ok {
@@ -334,10 +351,92 @@ func (e *emitter) callOperands(in *Instr) []ValueID {
 	return in.Args
 }
 
+// firstUses 返回每个值在本块中第一次被使用的位置（不在本块中使用时是块尾）。
+func firstUses(b *Block) map[ValueID]int {
+	m := make(map[ValueID]int, len(b.Instrs))
+	for i, in := range b.Instrs {
+		for _, a := range in.Args {
+			if a == NoValue {
+				continue
+			}
+			if _, ok := m[a]; !ok {
+				m[a] = i
+			}
+		}
+	}
+	return m
+}
+
+// mayWriteFlags 标记哪些指令"一定就地发射、且可能改写堆上数据"。
+//
+// 只有这类指令才能构成"延迟展开"的屏障：
+//   - OpUpdate / OpStoreGlobal / OpMethodCall 永远就地发射；
+//   - OpCall 只有在必须物化（多次使用、或结果被丢弃）时才就地发射；
+//     单次使用的调用会跟着使用者一起延迟，两者的相对顺序不变，
+//     所以它不是屏障（否则每一次 `f()+g()` 都要多一次存-取）。
+func (e *emitter) mayWriteFlags(b *Block) []bool {
+	out := make([]bool, len(b.Instrs))
+	for i, in := range b.Instrs {
+		switch in.Op {
+		case OpUpdate, OpStoreGlobal, OpMethodCall:
+			out[i] = true
+		case OpCall:
+			out[i] = in.Dst == NoValue || e.useCount[in.Dst] > 1
+		}
+	}
+	return out
+}
+
+// callFlags 标记所有调用点。
+//
+// 下标读取（OpIndex）比普通计算更敏感：延迟展开会**重新读一次内存**，
+// 而中间的调用可能已经改写了容器。所以对 OpIndex 而言，任何调用都是屏障，
+// 与它是否被物化无关。
+func callFlags(b *Block) []bool {
+	out := make([]bool, len(b.Instrs))
+	for i, in := range b.Instrs {
+		if in.Op == OpCall || in.Op == OpMethodCall {
+			out[i] = true
+		}
+	}
+	return out
+}
+
+// anyBetween 判断 (from, to) 之间是否有被标记的指令。
+// 区间右端是开区间：使用点自身那条指令的写入发生在参数求值之后，不影响展开。
+func anyBetween(flags []bool, from, to int) bool {
+	if to <= from {
+		return false
+	}
+	if to > len(flags) {
+		to = len(flags)
+	}
+	for i := from + 1; i < to; i++ {
+		if flags[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// emitBlock 发射一个基本块。
+//
+// "单次使用就地展开"是这里的核心优化，但它有一个必须显式排除的陷阱：
+// 如果某个值的使用点在**另一次写内存之后**，重新展开会读到更新后的内容。
+// 典型反例（真实踩过）：
+//
+//	var t = a[i]      // 展开成 读 a[i]
+//	a[i] = a[j]       // 写内存
+//	a[j] = t          // 若在这里重新展开 t，读到的是**新**的 a[i]
+//
+// 所以下面用"第一次使用位置 + 中间的写标记"来判定能不能展开。
 func (e *emitter) emitBlock(b *Block) error {
 	done := map[ValueID]bool{}
+	useAt := firstUses(b)
+	writes := e.mayWriteFlags(b)
+	calls := callFlags(b)
 
-	for _, in := range b.Instrs {
+	for idx, in := range b.Instrs {
 		if in.Line > 0 {
 			e.curLine = in.Line
 		}
@@ -346,6 +445,28 @@ func (e *emitter) emitBlock(b *Block) error {
 		}
 		if in.Op == OpPhi || in.Op == OpInit || in.Op == OpNop || in.Op == OpConst {
 			// OpConst 不落槽位：用到它的地方会重新发射 OpConstant
+			continue
+		}
+
+		if in.Op == OpMethodCall {
+			for _, a := range in.Args {
+				if err := e.emitValue(a, done); err != nil {
+					return err
+				}
+			}
+			if err := e.emitOp(in); err != nil {
+				return err
+			}
+			// OpPop changes lastPop; even unused results must be consumed by a store.
+			for _, dst := range []ValueID{in.Dst2, in.Dst} {
+				s, err := e.slot(dst)
+				if err != nil {
+					return err
+				}
+				e.emit(code.OpSetLocal, s)
+			}
+			done[in.Dst] = true
+			done[in.Dst2] = true
 			continue
 		}
 
@@ -383,8 +504,21 @@ func (e *emitter) emitBlock(b *Block) error {
 		}
 
 		if !e.slotOnly(in.Dst) {
-			// 单次使用：等用它的地方再展开
-			continue
+			// 单次使用：只有在"展开之前不会有写内存"时才允许推迟到使用点。
+			// 使用点在本块外（例如作为 phi 实参，在块尾才被读到）时，
+			// 一律按块尾处理——否则一次推迟就会把副作用搬到写操作之后。
+			use, ok := useAt[in.Dst]
+			if !ok {
+				use = len(b.Instrs)
+			}
+			unsafe := anyBetween(writes, idx, use)
+			if !unsafe && in.Op == OpIndex {
+				// 下标读会被"重新读一次内存"，中间的调用可能已经改写了容器
+				unsafe = anyBetween(calls, idx, use)
+			}
+			if !unsafe {
+				continue
+			}
 		}
 
 		// 需要落槽位
@@ -443,6 +577,14 @@ func (e *emitter) emitTerminator(b *Block, in *Instr, done map[ValueID]bool) err
 
 	case OpExit:
 		if e.isMain {
+			// 主函数里的"退出"就是执行到脚本末尾。只有最后一个块可以自然
+			// 落出；其它块必须显式跳到末尾，否则会顺序执行布局上紧随其后的
+			// 块——`if(f()){1}else{0}` 作为脚本最后一句时，then 分支就会
+			// 继续执行 else 分支的代码，把最终结果改写成 else 的值。
+			if len(e.fn.Blocks) > 0 && b != e.fn.Blocks[len(e.fn.Blocks)-1] {
+				e.endJumps = append(e.endJumps, len(e.ins))
+				e.ins = append(e.ins, code.Make(code.OpJump, 0)...)
+			}
 			return nil
 		}
 		e.emit(code.OpNull)
@@ -452,7 +594,17 @@ func (e *emitter) emitTerminator(b *Block, in *Instr, done map[ValueID]bool) err
 }
 
 // emitPhiCopies 为后继块的 phi 填值。
-// done 与所在块的发射状态共享，避免把有副作用的计算展开两次。
+//
+// 这是**并行拷贝**（parallel copy）：所有实参必须在任何一次写回之前求值。
+// 逐条"读-写、读-写"是错的：
+//
+//	# i、s 都是循环携带变量，实参分别是 i+1 和 s+i
+//	SetLocal i_slot ← i+1     # 覆盖了 i
+//	... 展开 s+i 时读到的 i 已经是 i+1 —— 结果多算一轮（实测 10 变成 15）
+//
+// 因此分两趟：先把所有实参压到操作数栈（纯读），再按相反顺序写回。
+// 实参若被多个 phi 使用，useCount > 1，slotOnly 会把它安排在槽位里，
+// 这里读的就是槽位；单次使用的实参只属于这一个 phi，不会重复展开。
 func (e *emitter) emitPhiCopies(b *Block, done map[ValueID]bool) error {
 	if len(b.Succs) != 1 {
 		return nil
@@ -462,6 +614,12 @@ func (e *emitter) emitPhiCopies(b *Block, done map[ValueID]bool) error {
 	if idx < 0 {
 		return nil
 	}
+
+	type copy struct {
+		arg ValueID
+		dst ValueID
+	}
+	copies := make([]copy, 0, len(s.Instrs))
 	for _, in := range s.Instrs {
 		if in.Op != OpPhi {
 			continue
@@ -473,10 +631,26 @@ func (e *emitter) emitPhiCopies(b *Block, done map[ValueID]bool) error {
 		if arg == in.Dst {
 			continue
 		}
-		if err := e.emitValue(arg, done); err != nil {
+		// 实参已经在目标槽位里（例如循环里被原地修改的容器，实参和 phi
+		// 分到同一个槽位）：这条拷贝是恒等拷贝，读一遍再写回去纯属浪费。
+		// 全局变量的值没有槽位（Slot 返回 -1），不做这个判断。
+		if e.slotOnly(arg) {
+			if from, to := e.fn.Slot(arg), e.fn.Slot(in.Dst); from >= 0 && from == to {
+				continue
+			}
+		}
+		copies = append(copies, copy{arg: arg, dst: in.Dst})
+	}
+
+	// 第一趟：只读。所有实参依次压栈。
+	for _, c := range copies {
+		if err := e.emitValue(c.arg, done); err != nil {
 			return err
 		}
-		dstSlot, err := e.slot(in.Dst)
+	}
+	// 第二趟：只写。栈顶依次是最后一个实参。
+	for i := len(copies) - 1; i >= 0; i-- {
+		dstSlot, err := e.slot(copies[i].dst)
 		if err != nil {
 			return err
 		}
@@ -508,6 +682,9 @@ func (e *emitter) emitOp(in *Instr) error {
 	case OpIndex:
 		e.emit(code.OpIndex)
 
+	case OpMakeSlice:
+		e.emit(code.OpMakeSlice)
+
 	case OpUpdate:
 		e.emit(code.OpUpdate)
 		e.emit(code.OpPop) // VM 会把容器压回栈，这里不需要
@@ -525,6 +702,12 @@ func (e *emitter) emitOp(in *Instr) error {
 			return nil
 		}
 		e.emit(code.OpCallFunc, len(in.Args)-1)
+
+	case OpMethodCall:
+		if len(in.Args) == 0 {
+			return bail("method call without receiver")
+		}
+		e.emit(code.OpCallMethod, in.Imm, len(in.Args)-1)
 
 	case OpLoadGlobal:
 		e.emit(code.OpGetGlobal, in.Imm)

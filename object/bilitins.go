@@ -93,7 +93,7 @@ func builtLen(arg Object) Object {
 	switch arg := arg.(type) {
 	case String:
 		length = len(arg.Value)
-	case Array:
+	case *Array:
 		length = len(arg.Elements)
 	case Map:
 		length = len(arg.Store)
@@ -141,6 +141,12 @@ func builtFloat(arg Object) Object {
 		res, err = strconv.ParseFloat(string(arg.Value), 64)
 		if err != nil {
 			return Error{ErrorMsg: err.Error()}
+		}
+	case Boolean:
+		if arg.Value {
+			res = 1
+		} else {
+			res = 0
 		}
 	default:
 		return Error{ErrorMsg: fmt.Sprintf("float() don't support type %s.", arg.Type())}

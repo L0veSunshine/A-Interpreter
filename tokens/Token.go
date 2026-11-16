@@ -15,14 +15,16 @@ const (
 	Pow   = "Pow"   // **
 	Mul   = "Mul"   // *
 	Div   = "Div"   // /
-	Mod   = "Mod"   // %
+	Mod      = "Mod"      // %
+	FloorDiv = "FloorDiv" // //
 
-	IPlus  = "IPlus"  // +=
-	IMinus = "IMinus" // -=
-	IPow   = "IPow"   // **=
-	IMul   = "IMul"   // *=
-	IDiv   = "IDiv"   // /=
-	IMod   = "IMod"   // %=
+	IPlus     = "IPlus"     // +=
+	IMinus    = "IMinus"    // -=
+	IPow      = "IPow"      // **=
+	IMul      = "IMul"      // *=
+	IDiv      = "IDiv"      // /=
+	IMod      = "IMod"      // %=
+	IFloorDiv = "IFloorDiv" // //=
 
 	Equal = "Equal" // ==
 	NotEq = "NotEq" // !=

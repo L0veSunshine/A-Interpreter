@@ -1,0 +1,40 @@
+# 0/1 背包 —— 经典二维 DP 展平成一维数组（LeetCode 416 的同款递推）。
+def knapsack(weights, values, cap){
+	var n = len(weights)
+	var width = cap + 1
+	var dp = []
+	for(var k = 0; k < (n + 1) * width; k += 1){
+		dp.append(0)
+	}
+	for(var i = 1; i <= n; i += 1){
+		var wi = weights[i - 1]
+		var vi = values[i - 1]
+		var base = i * width
+		var prev = base - width
+		for(var c = 0; c <= cap; c += 1){
+			var best = dp[prev + c]
+			if(wi <= c){
+				var cand = dp[prev + c - wi] + vi
+				if(cand > best){
+					best = cand
+				}
+			}
+			dp[base + c] = best
+		}
+	}
+	return dp[n * width + cap]
+}
+
+var n = 800
+var cap = 2000
+var weights = []
+var values = []
+var seed = 24680
+for(var i = 0; i < n; i += 1){
+	seed = (seed * 1103515245 + 12345) % 2147483648
+	weights.append(seed % 50 + 1)
+	seed = (seed * 1103515245 + 12345) % 2147483648
+	values.append(seed % 100 + 1)
+}
+
+knapsack(weights, values, cap)

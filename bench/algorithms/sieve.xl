@@ -1,0 +1,26 @@
+# LeetCode 204: Count Primes —— 埃拉托斯特尼筛法，衡量数组读写与内层循环。
+var n = 1000000
+
+var flags = []
+for(var i = 0; i <= n; i += 1){
+	flags.append(1)
+}
+flags[0] = 0
+flags[1] = 0
+
+var i = 2
+for(; i * i <= n; i += 1){
+	if(flags[i] == 1){
+		for(var j = i * i; j <= n; j += i){
+			flags[j] = 0
+		}
+	}
+}
+
+var count = 0
+for(var k = 0; k <= n; k += 1){
+	if(flags[k] == 1){
+		count += 1
+	}
+}
+count

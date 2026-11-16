@@ -9,7 +9,9 @@ type Frame struct {
 	ins code.Instructions
 	ip,
 	basePoint int
-	vars []object.Object
+	vars     []object.Object
+	free     []*object.Cell
+	captured map[int]*object.Cell
 	// localsBase 是 vars 在 vm.locals（所有帧共享的槽位区）里的起始下标。
 	// 帧返回时把 vm.localsTop 退回到这里，就完成了一次零分配回收。
 	localsBase int

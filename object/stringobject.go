@@ -3,6 +3,8 @@ package object
 import (
 	"fmt"
 	"strings"
+
+	"Interpreter/format"
 )
 
 type String struct {
@@ -16,40 +18,47 @@ func (s String) Type() ObjType {
 func (s String) Inspect() string {
 	return string(s.Value)
 }
-func stringSplit(self Object, args ...Object) []Object {
-	rs := self.(String).Value
+func stringSplit(self Object, args []Object) (Object, Object, error) {
+	s, ok := self.(String)
+	if !ok {
+		return self, nil, fmt.Errorf(format.Alert+"split() needs a String, got %s", self.Type())
+	}
 	if len(args) != 1 {
-		return []Object{Error{ErrorMsg: fmt.Sprintf("want 1 arg but get %d", len(args))}}
+		return self, nil, fmt.Errorf(format.Alert+"want 1 arg but get %d", len(args))
 	}
 	arg := args[0]
-	if arg.Type() != StringObj {
-		return []Object{Error{ErrorMsg: fmt.Sprintf("TypeError: must be str or None, not %s", arg.Type())}}
+	sep, ok := arg.(String)
+	if !ok {
+		return self, nil, fmt.Errorf(format.Alert+"TypeError: must be str or None, not %s", arg.Type())
 	}
-	target := arg.(String).Value
-	subStr := strings.Split(string(rs), string(target))
-	var res []Object
-	for _, s := range subStr {
-		res = append(res, String{Value: []rune(s)})
+	subStr := strings.Split(string(s.Value), string(sep.Value))
+	res := make([]Object, len(subStr))
+	for i, part := range subStr {
+		res[i] = String{Value: []rune(part)}
 	}
-	return []Object{self, Array{Elements: res}}
+	return s, &Array{Elements: res}, nil
 }
 
-func toUpper(self Object, args ...Object) []Object {
-	rs := self.(String).Value
-	if len(args) > 0 {
-		return []Object{Error{ErrorMsg: fmt.Sprintf("want not arg but get %d", len(args))}}
+func toUpper(self Object, args []Object) (Object, Object, error) {
+	s, ok := self.(String)
+	if !ok {
+		return self, nil, fmt.Errorf(format.Alert+"upper() needs a String, got %s", self.Type())
 	}
-	nrs := navToUpper(rs)
-	return []Object{self, String{Value: nrs}}
+	if len(args) > 0 {
+		return self, nil, fmt.Errorf(format.Alert+"want not arg but get %d", len(args))
+	}
+	return s, String{Value: navToUpper(s.Value)}, nil
 }
 
-func toLower(self Object, args ...Object) []Object {
-	rs := self.(String).Value
-	if len(args) > 0 {
-		return []Object{Error{ErrorMsg: fmt.Sprintf("want not arg but get %d", len(args))}}
+func toLower(self Object, args []Object) (Object, Object, error) {
+	s, ok := self.(String)
+	if !ok {
+		return self, nil, fmt.Errorf(format.Alert+"lower() needs a String, got %s", self.Type())
 	}
-	nrs := navToLower(rs)
-	return []Object{self, String{Value: nrs}}
+	if len(args) > 0 {
+		return self, nil, fmt.Errorf(format.Alert+"want not arg but get %d", len(args))
+	}
+	return s, String{Value: navToLower(s.Value)}, nil
 }
 
 func navToUpper(rs []rune) []rune {

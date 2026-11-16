@@ -35,6 +35,7 @@ var precedences = map[string]int{
 	tokens.Mul:      PRODUCT,
 	tokens.Div:      PRODUCT,
 	tokens.Mod:      PRODUCT,
+	tokens.FloorDiv: PRODUCT,
 	tokens.Pow:      POW,
 	tokens.LParen:   CALL,
 	tokens.Dot:      Method,

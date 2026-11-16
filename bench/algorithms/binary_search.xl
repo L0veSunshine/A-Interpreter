@@ -1,0 +1,34 @@
+# LeetCode 704: Binary Search —— 有序数组上的大量下界二分，衡量整数除法与分支。
+var n = 300000
+var a = []
+for(var i = 0; i < n; i += 1){
+	a.append(3 * i)
+}
+
+def lower_bound(a, target){
+	var lo = 0
+	var hi = len(a)
+	for(; lo < hi; ){
+		var mid = (lo + hi) // 2
+		if(a[mid] < target){
+			lo = mid + 1
+		}else{
+			hi = mid
+		}
+	}
+	return lo
+}
+
+var seed = 4242
+var hits = 0
+var total = 0
+for(var q = 0; q < 400000; q += 1){
+	seed = (seed * 1103515245 + 12345) % 2147483648
+	var t = seed % (3 * n)
+	var p = lower_bound(a, t)
+	if(p < n and a[p] == t){
+		hits += 1
+	}
+	total += p
+}
+[hits, total]

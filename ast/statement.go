@@ -26,7 +26,8 @@ func (p Program) Str() string {
 	var sb strings.Builder
 	for idx, s := range p.Statements {
 		if idx != len(p.Statements)-1 {
-			sb.WriteString(str(s) + "\n")
+			sb.WriteString(str(s))
+			sb.WriteByte('\n')
 		} else {
 			sb.WriteString(str(s))
 		}
@@ -51,8 +52,10 @@ func (vs VarStatement) TokenLiteral() string {
 
 func (vs VarStatement) Str() string {
 	var sb strings.Builder
-	sb.WriteString(vs.TokenLiteral() + " ")
-	sb.WriteString(vs.Indent.Str() + " = ")
+	sb.WriteString(vs.TokenLiteral())
+	sb.WriteByte(' ')
+	sb.WriteString(vs.Indent.Str())
+	sb.WriteString(" = ")
 	if vs.Value != nil {
 		sb.WriteString(vs.Value.Str())
 	}
@@ -76,10 +79,13 @@ func (v VarMethodCall) TokenLiteral() string {
 
 func (v VarMethodCall) Str() string {
 	var sb strings.Builder
-	sb.WriteString(v.TokenLiteral() + " ")
-	sb.WriteString(v.Indent.Str() + " = ")
+	sb.WriteString(v.TokenLiteral())
+	sb.WriteByte(' ')
+	sb.WriteString(v.Indent.Str())
+	sb.WriteString(" = ")
 	if v.Value != nil {
-		sb.WriteString(v.Value.Str() + " <Method>")
+		sb.WriteString(v.Value.Str())
+		sb.WriteString(" <Method>")
 	}
 	return sb.String()
 }
@@ -100,7 +106,8 @@ func (rs ReturnStatement) TokenLiteral() string {
 
 func (rs ReturnStatement) Str() string {
 	var sb strings.Builder
-	sb.WriteString(rs.TokenLiteral() + " ")
+	sb.WriteString(rs.TokenLiteral())
+	sb.WriteByte(' ')
 	if rs.ReturnVal != nil {
 		sb.WriteString(rs.ReturnVal.Str())
 	}
@@ -123,7 +130,9 @@ func (as AssignStatement) TokenLiteral() string {
 }
 func (as AssignStatement) Str() string {
 	var sb strings.Builder
-	sb.WriteString("assign: " + as.Identifier.Value + " = ")
+	sb.WriteString("assign: ")
+	sb.WriteString(as.Identifier.Value)
+	sb.WriteString(" = ")
 	if as.Statement != nil {
 		sb.WriteString(as.Statement.Str())
 	}

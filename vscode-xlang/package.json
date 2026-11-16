@@ -1,0 +1,33 @@
+{
+  "name": "xlang-syntax",
+  "displayName": "XLang Syntax",
+  "description": "Syntax highlighting and completion for XLang.",
+  "version": "0.2.0",
+  "publisher": "xlang-local",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "main": "./extension.js",
+  "files": ["package.json", "README.md", "extension.js", "language-configuration.json", "syntaxes/**"],
+  "scripts": { "test": "node test/grammar.test.js && node test/completion.test.js" },
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.1"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "xlang",
+        "aliases": ["XLang", "xlang"],
+        "extensions": [".xl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xlang",
+        "scopeName": "source.xlang",
+        "path": "./syntaxes/xlang.tmLanguage.json"
+      }
+    ]
+  }
+}

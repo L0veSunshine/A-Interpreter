@@ -184,7 +184,7 @@ func (f *Function) cse() bool {
 			}
 
 			switch in.Op {
-			case OpCall, OpUpdate, OpStoreGlobal:
+			case OpCall, OpMethodCall, OpUpdate, OpStoreGlobal:
 				available = map[string]ValueID{}
 				continue
 			}
@@ -394,11 +394,16 @@ func foldBinary(op code.Opcode, x, y object.Object) (object.Object, bool) {
 				return nil, false
 			}
 			return object.Int{Value: a % b}, true
+		case code.OpFloorDiv:
+			if b == 0 {
+				return nil, false
+			}
+			return object.Int{Value: object.FloorDivInt(a, b)}, true
 		case code.OpPow:
 			return object.Float{Value: math.Pow(float64(a), float64(b))}, true
 		}
 		// 比较
-		if res, ok := foldNumCompare(op, float64(a), float64(b)); ok {
+		if res, ok := foldNumericCompare(op, x, y); ok {
 			return res, true
 		}
 		return nil, false
@@ -451,10 +456,15 @@ func foldBinary(op code.Opcode, x, y object.Object) (object.Object, bool) {
 				return nil, false
 			}
 			return object.Float{Value: math.Mod(a, b)}, true
+		case code.OpFloorDiv:
+			if b == 0 {
+				return nil, false
+			}
+			return object.Float{Value: object.FloorDivFloat(a, b)}, true
 		case code.OpPow:
 			return object.Float{Value: math.Pow(a, b)}, true
 		}
-		if res, ok := foldNumCompare(op, a, b); ok {
+		if res, ok := foldNumericCompare(op, x, y); ok {
 			return res, true
 		}
 		return nil, false
@@ -463,29 +473,38 @@ func foldBinary(op code.Opcode, x, y object.Object) (object.Object, bool) {
 	// 4) 其它类型只处理 == / !=
 	switch op {
 	case code.OpEqual:
-		return object.Boolean{Value: object.RichCompare(x, y)}, true
+		return object.Boolean{Value: object.ValueEqual(x, y)}, true
 	case code.OpNotEQ:
-		return object.Boolean{Value: !object.RichCompare(x, y)}, true
+		return object.Boolean{Value: !object.ValueEqual(x, y)}, true
 	}
 	return nil, false
 }
 
-func foldNumCompare(op code.Opcode, a, b float64) (object.Object, bool) {
+// foldNumericCompare 折叠数值比较。三路比较由 object.CompareNumeric 提供，
+// 与 VM 共用同一份语义实现（int/int 精确比较，不经过 float64）。
+func foldNumericCompare(op code.Opcode, x, y object.Object) (object.Object, bool) {
+	order, ok := object.CompareNumeric(x, y)
+	if !ok {
+		return nil, false
+	}
+	var res bool
 	switch op {
 	case code.OpEqual:
-		return object.Boolean{Value: a == b}, true
+		res = order == object.Equal
 	case code.OpNotEQ:
-		return object.Boolean{Value: a != b}, true
+		res = order != object.Equal
 	case code.OpGT:
-		return object.Boolean{Value: a > b}, true
+		res = order == object.Greater
 	case code.OpGTEq:
-		return object.Boolean{Value: a >= b}, true
+		res = order == object.Greater || order == object.Equal
 	case code.OpLT:
-		return object.Boolean{Value: a < b}, true
+		res = order == object.Less
 	case code.OpLTEq:
-		return object.Boolean{Value: a <= b}, true
+		res = order == object.Less || order == object.Equal
+	default:
+		return nil, false
 	}
-	return nil, false
+	return object.Boolean{Value: res}, true
 }
 
 func foldUnary(op code.Opcode, x object.Object) (object.Object, bool) {
